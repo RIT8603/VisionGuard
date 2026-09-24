@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionGuard AI</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #171b22;
+    --line: #262c36;
+    --text: #e6e9ef;
+    --muted: #8b94a3;
+    --accent: #ffd24a;
+    --ok: #5cdc86;
+    --warn: #ffb03a;
+    --crit: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .3px; }
+  header h1 span { color: var(--accent); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.live { background: var(--ok); box-shadow: 0 0 0 3px rgba(92,220,134,.18); }
+  .spacer { flex: 1; }
+  .meta { color: var(--muted); font-size: 12px; }
+
+  main {
+    display: grid; grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 16px; padding: 16px; align-items: start;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; overflow: hidden;
+  }
+  .card h2 {
+    margin: 0; padding: 10px 14px; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+    border-bottom: 1px solid var(--line);
+  }
+  .card .body { padding: 12px 14px; }
+
+  #video { display: block; width: 100%; background: #000; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); }
+  .stat { background: var(--panel); padding: 10px 14px; }
+  .stat .v { font-size: 20px; font-variant-numeric: tabular-nums; }
+  .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 5px 0; vertical-align: top; }
+  td.k { color: var(--muted); white-space: nowrap; padding-right: 12px; }
+  td.v { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .mod { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+  .mod .name { flex: 1; }
+  .mod .ms { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .pill {
+    font-size: 10px; padding: 1px 7px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted);
+  }
+  .pill.detection { color: #7fb5ff; }
+  .pill.tracking { color: #b98bff; }
+  .pill.analysis { color: var(--ok); }
+
+  ul.events { list-style: none; margin: 0; padding: 0; max-height: 340px; overflow-y: auto; }
+  ul.events li {
+    padding: 8px 14px; border-bottom: 1px solid var(--line);
+    border-left: 3px solid var(--muted); font-size: 13px;
+  }
+  ul.events li.warning { border-left-color: var(--warn); }
+  ul.events li.critical { border-left-color: var(--crit); }
+  ul.events .when { color: var(--muted); font-size: 11px; }
+  .empty { color: var(--muted); padding: 14px; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="dot" id="dot"></div>
+  <h1>Vision<span>Guard</span> AI</h1>
+  <div class="spacer"></div>
+  <div class="meta" id="headline">connecting…</div>
+</header>
+
+<main>
+  <div>
+    <div class="card">
+      <img id="video" src="/stream.mjpg" alt="Live view">
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="stats">
+        <div class="stat"><div class="v" id="s-fps">–</div><div class="k">FPS</div></div>
+        <div class="stat"><div class="v" id="s-lat">–</div><div class="k">Latency</div></div>
+        <div class="stat"><div class="v" id="s-frames">–</div><div class="k">Frames</div></div>
+        <div class="stat"><div class="v" id="s-events">–</div><div class="k">Events</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Source</h2>
+      <div class="body"><table id="source"></table></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>Modules</h2>
+      <div class="body" id="modules"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>Current frame</h2>
+      <div class="body"><table id="frame"></table></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>Events</h2>
+      <ul class="events" id="events"></ul>
+      <div class="empty" id="events-empty">No events yet.</div>
+    </div>
+  </div>
+</main>
+
+<script>
+let lastEventId = 0;
+
+const $ = (id) => document.getElementById(id);
+const rows = (el, pairs) => {
+  el.innerHTML = pairs
+    .map(([k, v]) => `<tr><td class="k">${k}</td><td class="v">${v}</td></tr>`)
+    .join("");
+};
+
+async function poll() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    render(s);
+    $("dot").className = "dot" + (s.running ? " live" : "");
+  } catch {
+    $("dot").className = "dot";
+    $("headline").textContent = "pipeline unreachable";
+  }
+  try {
+    const { events } = await (await fetch(`/api/events?since=${lastEventId}`)).json();
+    if (events.length) addEvents(events);
+  } catch { /* events are best-effort */ }
+}
+
+function render(s) {
+  const st = s.stats || {}, f = s.frame || {}, info = s.info || {};
+
+  $("headline").textContent =
+    `${info.source_type || "source"} · ${info.resolution || ""} · up ${s.uptime_sec}s`;
+  $("s-fps").textContent = (st.fps ?? 0).toFixed(1);
+  $("s-lat").textContent = `${(st.latency_ms ?? 0).toFixed(0)} ms`;
+  $("s-frames").textContent = st.frames_processed ?? 0;
+  $("s-events").textContent = s.event_count ?? 0;
+
+  rows($("source"), [
+    ["Type", info.source_type || "–"],
+    ["Id", info.source_id || "–"],
+    ["Resolution", info.resolution || "–"],
+    ["Capture wait", `${(st.capture_ms ?? 0).toFixed(1)} ms`],
+    ["Failed frames", st.frames_failed ?? 0],
+  ]);
+
+  const lat = st.module_latency_ms || {};
+  $("modules").innerHTML = (info.modules || [])
+    .map((m) => `
+      <div class="mod">
+        <span class="pill ${m.type}">${m.type}</span>
+        <span class="name">${m.name}</span>
+        <span class="ms">${(lat[m.name] ?? 0).toFixed(2)} ms</span>
+      </div>`)
+    .join("") || '<div class="empty">No modules enabled.</div>';
+
+  const counts = [];
+  for (const [name, list] of Object.entries(f.detections || {})) {
+    counts.push([`${name}`, list.length]);
+  }
+  for (const [name, list] of Object.entries(f.tracks || {})) {
+    counts.push([`${name}`, list.length]);
+  }
+  counts.push(["frame id", f.frame_id ?? "–"]);
+  rows($("frame"), counts);
+}
+
+function addEvents(events) {
+  lastEventId = Math.max(lastEventId, ...events.map((e) => e.id));
+  $("events-empty").style.display = "none";
+  const ul = $("events");
+  for (const e of events) {
+    const li = document.createElement("li");
+    li.className = e.severity || "info";
+    const zone = e.data && e.data.zone ? ` · ${e.data.zone}` : "";
+    const who = e.subject
+      ? `${e.subject.class || ""} #${e.subject.track_id ?? "?"}`
+      : "";
+    li.innerHTML =
+      `<div><strong>${e.event}</strong> ${who}${zone}</div>` +
+      `<div class="when">frame ${e.frame_id} · ${new Date(e.timestamp).toLocaleTimeString()}</div>`;
+    ul.prepend(li);
+  }
+  while (ul.children.length > 100) ul.removeChild(ul.lastChild);
+}
+
+poll();
+setInterval(poll, 500);
+</script>
+</body>
+</html>

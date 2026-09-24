@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Local configuration and secrets
+.env
+
+# Runtime output
+logs/
+*.log
+
+# Model weights (large binaries - fetched or trained, never committed)
+models/*
+!models/.gitkeep
+!models/README.md
+*.pt
+*.onnx
+*.engine
+
+# Sample media
+data/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

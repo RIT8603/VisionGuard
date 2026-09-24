@@ -1,0 +1,4 @@
+# VisionGuard AI — development dependencies
+-r requirements.txt
+
+pytest>=8.0

@@ -1,0 +1,528 @@
+"""Configuration loading and validation.
+
+Precedence (lowest to highest):
+
+    1. Defaults declared on the Pydantic models below
+    2. ``configs/config.yaml`` (or the path given to :func:`load_config`)
+    3. Environment variables / ``.env``
+    4. Command-line flags (applied by ``app.main``)
+
+Every behavioural switch in VisionGuard is expressed here. No module, source or
+pipeline component is allowed to read ``os.environ`` directly.
+"""
+
+from __future__ import annotations
+
+import os
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Mapping
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+DEFAULT_CONFIG_PATH = Path("configs/config.yaml")
+ENV_PREFIX = "VISIONGUARD_"
+
+_VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+
+class ConfigError(Exception):
+    """Raised when configuration is missing, malformed or internally invalid."""
+
+
+class VideoSourceType(str, Enum):
+    """The supported video input kinds.
+
+    The rest of the pipeline never branches on this value — only
+    ``app.sources.factory`` does.
+    """
+
+    WEBCAM = "webcam"
+    FILE = "file"
+    RTSP = "rtsp"
+
+
+class CaptureBackend(str, Enum):
+    """OpenCV capture backend selection.
+
+    ``AUTO`` picks MSMF on Windows, V4L2 on Linux, and lets OpenCV decide
+    elsewhere. See :class:`~app.sources.webcam.WebcamSource` for why MSMF wins
+    on Windows despite its slower open.
+    """
+
+    AUTO = "auto"
+    ANY = "any"
+    DSHOW = "dshow"
+    MSMF = "msmf"
+    V4L2 = "v4l2"
+    FFMPEG = "ffmpeg"
+    GSTREAMER = "gstreamer"
+
+
+class AppConfig(BaseModel):
+    """Application-wide settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = "VisionGuard AI"
+    log_level: str = "INFO"
+    log_file: str | None = None
+
+    @field_validator("log_level")
+    @classmethod
+    def _validate_level(cls, value: str) -> str:
+        upper = value.upper()
+        if upper not in _VALID_LOG_LEVELS:
+            raise ValueError(
+                f"log_level must be one of {sorted(_VALID_LOG_LEVELS)}, got {value!r}"
+            )
+        return upper
+
+
+class VideoConfig(BaseModel):
+    """Video input settings shared by every source implementation.
+
+    Fields not relevant to the selected ``source`` are simply ignored, which is
+    what lets a single config file describe webcam, file and RTSP deployments.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: VideoSourceType = VideoSourceType.WEBCAM
+    source_id: str | None = Field(
+        default=None,
+        description="Stable identifier stamped onto every frame. Auto-derived when unset.",
+    )
+    backend: CaptureBackend = CaptureBackend.AUTO
+
+    # Webcam
+    device_id: int = 0
+    fourcc: str | None = Field(
+        default=None,
+        description=(
+            "Pixel format to request from the camera, e.g. 'MJPG'. Left unset "
+            "by default: on some cameras MJPG lifts the frame-rate cap, on "
+            "others the driver ignores or is slowed by it, so it is opt-in "
+            "after measuring rather than a blanket default."
+        ),
+    )
+
+    # Requested capture properties (a driver may ignore these).
+    width: int = 1280
+    height: int = 720
+    fps: int = 30
+
+    # File source
+    path: str | None = None
+    loop: bool = False
+    start_frame: int = Field(
+        default=0,
+        description="Frame to start playback from. Useful for evaluating a segment.",
+    )
+    playback_speed: float = Field(
+        default=0.0,
+        description=(
+            "Multiple of the file's native frame rate to play at. 0 means "
+            "unthrottled (process as fast as possible), which is what you want "
+            "for benchmarking; 1.0 plays at real time."
+        ),
+    )
+
+    # RTSP source
+    rtsp_url: str | None = None
+    rtsp_transport: str = Field(
+        default="tcp",
+        description=(
+            "'tcp' is reliable and the right default; 'udp' has lower latency "
+            "but drops packets, producing smeared frames on a busy network."
+        ),
+    )
+
+    # Resilience
+    open_timeout_sec: float = 10.0
+    read_timeout_sec: float = Field(
+        default=5.0,
+        description="How long a single frame read may block before it is treated as a stall.",
+    )
+    read_retries: int = 5
+    read_retry_delay_sec: float = 0.05
+    reconnect_attempts: int = Field(
+        default=5,
+        description="Consecutive reconnects allowed before the source gives up. 0 disables reconnect.",
+    )
+    reconnect_delay_sec: float = Field(
+        default=2.0,
+        description="Base delay between reconnects; doubles each consecutive failure.",
+    )
+    reconnect_max_delay_sec: float = 30.0
+
+    @field_validator("rtsp_transport")
+    @classmethod
+    def _validate_transport(cls, value: str) -> str:
+        lowered = value.lower()
+        if lowered not in {"tcp", "udp"}:
+            raise ValueError("rtsp_transport must be 'tcp' or 'udp'")
+        return lowered
+
+    @field_validator("device_id")
+    @classmethod
+    def _validate_device(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("device_id must be >= 0")
+        return value
+
+    @field_validator("width", "height")
+    @classmethod
+    def _validate_dimensions(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("width/height must be positive")
+        return value
+
+    @field_validator("fps")
+    @classmethod
+    def _validate_fps(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("fps must be positive")
+        return value
+
+    @field_validator("start_frame")
+    @classmethod
+    def _validate_start_frame(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("start_frame must be >= 0")
+        return value
+
+    @field_validator("playback_speed")
+    @classmethod
+    def _validate_playback_speed(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("playback_speed must be >= 0 (0 = unthrottled)")
+        return value
+
+    @field_validator("fourcc")
+    @classmethod
+    def _validate_fourcc(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if len(value) != 4:
+            raise ValueError("fourcc must be exactly 4 characters, e.g. 'MJPG'")
+        return value.upper()
+
+    @model_validator(mode="after")
+    def _validate_source_requirements(self) -> "VideoConfig":
+        if self.source is VideoSourceType.FILE and not self.path:
+            raise ValueError("video.path is required when video.source is 'file'")
+        if self.source is VideoSourceType.RTSP and not self.rtsp_url:
+            raise ValueError("video.rtsp_url is required when video.source is 'rtsp'")
+        return self
+
+    def resolved_source_id(self) -> str:
+        """A human-readable, stable id for this source."""
+        if self.source_id:
+            return self.source_id
+        if self.source is VideoSourceType.WEBCAM:
+            return f"webcam-{self.device_id}"
+        if self.source is VideoSourceType.FILE:
+            return f"file-{Path(self.path or 'unknown').stem}"
+        return "rtsp-0"
+
+
+class ProcessingConfig(BaseModel):
+    """Frame preprocessing and output settings owned by the Vision Core."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_width: int | None = Field(
+        default=960,
+        description=(
+            "Resize every captured frame to this width, preserving aspect ratio. "
+            "Set to null to process at native capture resolution. The whole "
+            "pipeline (inference and display) uses this single resolution, so "
+            "bounding boxes never need rescaling."
+        ),
+    )
+    show_window: bool = True
+    window_name: str = "VisionGuard AI"
+    show_hud: bool = True
+    show_boxes: bool = True
+    hud_max_detections: int = Field(
+        default=5,
+        description="Cap on per-detection HUD lines, so a crowd cannot fill the panel.",
+    )
+    mirror: bool = Field(
+        default=False,
+        description="Horizontally flip the frame. Useful for front-facing webcams.",
+    )
+    max_fps: float = Field(
+        default=0.0,
+        description="Throttle the loop to this FPS. 0 disables throttling.",
+    )
+    stall_timeout_sec: float = Field(
+        default=30.0,
+        description=(
+            "Stop the pipeline when no frame has arrived for this long. Guards "
+            "against a silently dead network stream. 0 disables the check."
+        ),
+    )
+    stats_window: int = 30
+    log_stats_every: int = Field(
+        default=60,
+        description="Headless mode logs a stats line every N frames. 0 disables.",
+    )
+
+    @field_validator("target_width")
+    @classmethod
+    def _validate_target_width(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("processing.target_width must be positive or null")
+        return value
+
+    @field_validator("stats_window")
+    @classmethod
+    def _validate_stats_window(cls, value: int) -> int:
+        if value < 2:
+            raise ValueError("processing.stats_window must be >= 2")
+        return value
+
+
+class DashboardConfig(BaseModel):
+    """Read-only web view of a running pipeline."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    host: str = Field(
+        default="127.0.0.1",
+        description=(
+            "Bind address. The dashboard has NO authentication, so it defaults "
+            "to localhost only. Set 0.0.0.0 to expose it on the network, and "
+            "put it behind a reverse proxy with auth if you do."
+        ),
+    )
+    port: int = 8080
+    stream_fps: float = Field(
+        default=15.0,
+        description=(
+            "Cap on JPEG encoding for the live view. Analysis still runs at "
+            "full rate; only the picture is throttled. 0 = every frame."
+        ),
+    )
+    jpeg_quality: int = 75
+    max_events: int = Field(
+        default=200, description="How many recent events the feed keeps."
+    )
+
+    @field_validator("port")
+    @classmethod
+    def _validate_port(cls, value: int) -> int:
+        if not 1 <= value <= 65535:
+            raise ValueError("dashboard.port must be between 1 and 65535")
+        return value
+
+    @field_validator("jpeg_quality")
+    @classmethod
+    def _validate_quality(cls, value: int) -> int:
+        if not 1 <= value <= 100:
+            raise ValueError("dashboard.jpeg_quality must be between 1 and 100")
+        return value
+
+    @field_validator("stream_fps")
+    @classmethod
+    def _validate_stream_fps(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("dashboard.stream_fps must be >= 0 (0 = every frame)")
+        return value
+
+
+class ModuleConfig(BaseModel):
+    """Per-module configuration.
+
+    ``enabled`` is the only reserved key. Every other key is passed through to
+    the module as ``params`` — the core never interprets them.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    enabled: bool = False
+
+    @property
+    def params(self) -> Dict[str, Any]:
+        """Module-specific settings (everything except ``enabled``)."""
+        return dict(self.__pydantic_extra__ or {})
+
+
+class VisionGuardConfig(BaseModel):
+    """Root configuration object."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    app: AppConfig = Field(default_factory=AppConfig)
+    video: VideoConfig = Field(default_factory=VideoConfig)
+    processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
+    modules: Dict[str, ModuleConfig] = Field(default_factory=dict)
+
+    def enabled_module_names(self) -> List[str]:
+        """Names of enabled modules, in the order they appear in the config."""
+        return [name for name, cfg in self.modules.items() if cfg.enabled]
+
+    def module_config(self, name: str) -> ModuleConfig:
+        return self.modules.get(name, ModuleConfig())
+
+
+# --------------------------------------------------------------------------- #
+# Loading
+# --------------------------------------------------------------------------- #
+
+def _load_dotenv_if_available() -> None:
+    """Load a local ``.env`` file when python-dotenv is installed.
+
+    The dependency is optional on purpose: the platform must run in containers
+    where configuration arrives purely through real environment variables.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv(override=False)
+
+
+def _env(name: str) -> str | None:
+    """Read ``VISIONGUARD_<NAME>`` falling back to bare ``<NAME>``."""
+    value = os.getenv(f"{ENV_PREFIX}{name}")
+    if value is None:
+        value = os.getenv(name)
+    return value.strip() if value is not None else None
+
+
+def _as_bool(value: str) -> bool:
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _set_nested(data: Dict[str, Any], section: str, key: str, value: Any) -> None:
+    data.setdefault(section, {})
+    if not isinstance(data[section], dict):
+        raise ConfigError(f"Config section '{section}' must be a mapping")
+    data[section][key] = value
+
+
+# Environment variable -> (config section, key, parser)
+_ENV_OVERRIDES: Mapping[str, tuple[str, str, Any]] = {
+    "VIDEO_SOURCE": ("video", "source", str),
+    "VIDEO_SOURCE_ID": ("video", "source_id", str),
+    "VIDEO_BACKEND": ("video", "backend", str),
+    "VIDEO_DEVICE_ID": ("video", "device_id", int),
+    "VIDEO_WIDTH": ("video", "width", int),
+    "VIDEO_HEIGHT": ("video", "height", int),
+    "VIDEO_FPS": ("video", "fps", int),
+    "VIDEO_PATH": ("video", "path", str),
+    "VIDEO_LOOP": ("video", "loop", _as_bool),
+    "RTSP_URL": ("video", "rtsp_url", str),
+    "RTSP_TRANSPORT": ("video", "rtsp_transport", str),
+    "LOG_LEVEL": ("app", "log_level", str),
+    "LOG_FILE": ("app", "log_file", str),
+    "SHOW_WINDOW": ("processing", "show_window", _as_bool),
+    "TARGET_WIDTH": ("processing", "target_width", int),
+    "MIRROR": ("processing", "mirror", _as_bool),
+    "MAX_FPS": ("processing", "max_fps", float),
+    "DASHBOARD": ("dashboard", "enabled", _as_bool),
+    "DASHBOARD_HOST": ("dashboard", "host", str),
+    "DASHBOARD_PORT": ("dashboard", "port", int),
+}
+
+
+def apply_env_overrides(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Overlay environment variables onto a raw config mapping."""
+    for env_name, (section, key, parser) in _ENV_OVERRIDES.items():
+        raw = _env(env_name)
+        if raw is None or raw == "":
+            continue
+        try:
+            _set_nested(data, section, key, parser(raw))
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(
+                f"Environment variable {env_name}={raw!r} is not valid: {exc}"
+            ) from exc
+    return data
+
+
+def resolve_config_path(explicit: str | Path | None = None) -> Path:
+    """Decide which YAML file to load."""
+    if explicit:
+        return Path(explicit)
+    from_env = _env("CONFIG") or _env("CONFIG_PATH")
+    if from_env:
+        return Path(from_env)
+    return DEFAULT_CONFIG_PATH
+
+
+def load_raw_config(path: str | Path) -> Dict[str, Any]:
+    """Read and parse a YAML config file into a plain mapping."""
+    config_path = Path(path)
+    if not config_path.is_file():
+        raise ConfigError(
+            f"Config file not found: {config_path}\n"
+            f"Create it or pass --config <path>."
+        )
+    try:
+        with config_path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"Invalid YAML in {config_path}: {exc}") from exc
+
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        raise ConfigError(f"{config_path} must contain a YAML mapping at the top level")
+    return data
+
+
+def build_config(data: Mapping[str, Any]) -> VisionGuardConfig:
+    """Validate a raw mapping into a :class:`VisionGuardConfig`."""
+    try:
+        return VisionGuardConfig.model_validate(data)
+    except ValidationError as exc:
+        details = "\n".join(
+            f"  - {'.'.join(str(p) for p in err['loc']) or '<root>'}: {err['msg']}"
+            for err in exc.errors()
+        )
+        raise ConfigError(f"Invalid configuration:\n{details}") from exc
+
+
+def load_config(
+    path: str | Path | None = None,
+    *,
+    use_env: bool = True,
+    overrides: Mapping[str, Any] | None = None,
+) -> VisionGuardConfig:
+    """Load, overlay and validate the full VisionGuard configuration.
+
+    Args:
+        path: Explicit YAML path. Falls back to ``VISIONGUARD_CONFIG`` then
+            ``configs/config.yaml``.
+        use_env: Apply ``.env`` / environment overrides.
+        overrides: Final nested overrides, e.g. ``{"video": {"device_id": 1}}``.
+            Used by ``app.main`` for CLI flags.
+
+    Raises:
+        ConfigError: on a missing file, bad YAML or failed validation.
+    """
+    if use_env:
+        _load_dotenv_if_available()
+
+    data = load_raw_config(resolve_config_path(path))
+
+    if use_env:
+        data = apply_env_overrides(data)
+
+    if overrides:
+        for section, values in overrides.items():
+            if not isinstance(values, Mapping):
+                raise ConfigError(f"Override for '{section}' must be a mapping")
+            for key, value in values.items():
+                if value is None:
+                    continue
+                _set_nested(data, section, key, value)
+
+    return build_config(data)

@@ -1,0 +1,24 @@
+# VisionGuard AI - runtime dependencies
+
+# --- core platform (Phase 1) ---
+opencv-python==5.0.0.93     # OpenCV 5 - the Vision Core
+numpy>=2.0,<3               # frame buffers
+pydantic>=2.7,<3            # configuration validation
+PyYAML>=6.0                 # config.yaml parsing
+python-dotenv>=1.0          # optional .env support
+
+# --- detection backend (Phase 2) ---
+# Needed only when a module using the 'ultralytics' backend is enabled.
+# Pulls in torch + torchvision, so expect a large install.
+#
+# LICENSE: ultralytics is AGPL-3.0. Fine for development and open-source
+# deployments; review before shipping a closed-source product. The
+# DetectorBackend interface in app/models/base.py exists so this can be
+# swapped for an ONNX Runtime or OpenCV-DNN backend without touching any
+# AI module. See README "Detection backend".
+ultralytics>=8.3,<9
+
+# --- web dashboard ---
+# Needed only when dashboard.enabled is true.
+fastapi>=0.110
+uvicorn[standard]>=0.29

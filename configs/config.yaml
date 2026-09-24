@@ -1,0 +1,233 @@
+# =============================================================================
+# VisionGuard AI — configuration
+# =============================================================================
+# Everything the platform does is decided here. Environment variables and CLI
+# flags override these values (see .env.example and `python -m app.main --help`).
+# =============================================================================
+
+app:
+  name: "VisionGuard AI"
+  log_level: INFO          # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  log_file: null           # e.g. "logs/visionguard.log"
+
+# -----------------------------------------------------------------------------
+# Video input
+# -----------------------------------------------------------------------------
+# Switching between development and production is a change to `source` only.
+# No AI module or pipeline code is aware of which source is active.
+#
+#   webcam -> development / testing        (available)
+#   file   -> evaluation / regression      (available)
+#   rtsp   -> CCTV / IP camera production  (available)
+# -----------------------------------------------------------------------------
+video:
+  source: webcam
+  source_id: null          # stamped on every frame; auto-derived when null
+
+  # auto | any | dshow | msmf | v4l2 | ffmpeg | gstreamer
+  # `auto` = MSMF on Windows, V4L2 on Linux.
+  # On Windows, MSMF takes a few seconds to open the camera but sustains its
+  # rated frame rate; DirectShow opens fast but can be stuck at ~10 fps.
+  # Switch to `dshow` if startup time matters more, or MSMF misbehaves.
+  backend: auto
+
+  # --- webcam ---
+  device_id: 0
+  fourcc: null             # e.g. MJPG. Opt-in: it lifts the fps cap on some
+                           # cameras and is ignored or harmful on others.
+                           # Measure with --no-window --max-frames 60 first.
+
+  # --- requested capture properties (drivers may snap to a nearby mode) ---
+  width: 1280
+  height: 720
+  fps: 30
+
+  # --- file source ---
+  path: null               # e.g. "data/samples/office.mp4"
+  loop: false              # restart at the end instead of stopping
+  start_frame: 0           # seek here before the first frame
+  playback_speed: 0.0      # 0 = as fast as possible (benchmarking)
+                           # 1.0 = real time, 2.0 = double speed
+
+  # --- rtsp source ---
+  # Keep real credentials in .env (RTSP_URL), not in this file.
+  rtsp_url: null
+  rtsp_transport: tcp      # tcp = reliable (default); udp = lower latency, lossy
+
+  # --- resilience ---
+  open_timeout_sec: 10.0   # give up connecting after this long
+  read_timeout_sec: 5.0    # a single frame read may block this long
+  read_retries: 5          # quick retries before a webcam read is failed
+  read_retry_delay_sec: 0.05
+  reconnect_attempts: 5    # consecutive RTSP reconnects before giving up; 0 disables
+  reconnect_delay_sec: 2.0 # doubles after each consecutive failure
+  reconnect_max_delay_sec: 30.0
+
+# -----------------------------------------------------------------------------
+# Vision Core processing
+# -----------------------------------------------------------------------------
+processing:
+  target_width: 960        # single pipeline resolution; null = native capture size
+  show_window: true
+  window_name: "VisionGuard AI"
+  show_hud: true
+  show_boxes: true         # draw detection boxes from every enabled detector
+  hud_max_detections: 5    # cap per-detection HUD lines
+  mirror: false            # flip horizontally (natural for a front-facing webcam)
+  max_fps: 0               # throttle the loop; 0 = as fast as the source allows
+  stall_timeout_sec: 30.0  # stop if no frame arrives for this long; 0 disables
+  stats_window: 30         # rolling window for FPS / latency averages
+  log_stats_every: 60      # headless stats logging interval in frames; 0 = off
+
+# -----------------------------------------------------------------------------
+# Web dashboard (read-only)
+# -----------------------------------------------------------------------------
+# Live video, module status, results and the event feed in a browser.
+# It observes the pipeline; it cannot reconfigure or control it.
+dashboard:
+  enabled: false
+  host: "127.0.0.1"        # NO AUTHENTICATION - localhost only by default.
+                           # 0.0.0.0 exposes it to the whole network; put it
+                           # behind a reverse proxy with auth if you do that.
+  port: 8080
+  stream_fps: 15.0         # caps JPEG encoding only; analysis runs full rate
+  jpeg_quality: 75
+  max_events: 200
+
+# -----------------------------------------------------------------------------
+# AI modules
+# -----------------------------------------------------------------------------
+# A module runs only when `enabled: true`. A disabled module is never imported,
+# never constructed and never loads a model.
+#
+# Any extra key under a module is passed to that module as a parameter; the core
+# never interprets it.
+#
+# PHASE 2 STATUS: person_detection is implemented. Everything else still fails
+# fast with "Unknown AI module '<name>'" if enabled - that is the registry
+# working as intended, not a bug.
+# -----------------------------------------------------------------------------
+modules:
+
+  # ---- Detection ----
+  person_detection:
+    enabled: true          # Phase 2
+    backend: ultralytics   # see app/models/factory.py for available backends
+    model: yolo11n.pt      # downloaded once on first run
+    device: cpu            # cpu | cuda | 0 | 0,1 ...
+    imgsz: 640             # inference resolution; lower is faster
+    confidence_threshold: 0.4
+    min_box_area: 0        # discard boxes smaller than this many pixels
+
+  # Detectors configured with the same model share one load and one inference
+  # per frame, so enabling several that use the same weights is nearly free.
+  # Measured: 3 detectors on yolo11n went 9.0 -> 19.3 FPS with sharing on.
+  # Set `share_model: false` on a module to opt it out.
+  object_detection:
+    enabled: false
+    model: yolo11n.pt
+    confidence_threshold: 0.4
+    labels: []             # empty = every class the model knows (80 for COCO)
+
+  vehicle_detection:
+    enabled: false
+    model: yolo11n.pt
+    confidence_threshold: 0.4
+    labels: [car, truck, bus, motorcycle, bicycle]
+
+  # Counts people from person_detection. Runs no model of its own, so it is
+  # effectively free - but it requires person_detection to be enabled.
+  crowd_detection:
+    enabled: false
+    threshold: 5           # people at or above this count = crowded
+
+  # --- these three need custom-trained weights ---
+  # No stock COCO model contains helmet, vest, fire or smoke classes.
+  # Enabling one without a `model:` path fails at startup with instructions.
+  # Set `labels` to match your model's own class names.
+  ppe_detection:
+    enabled: false
+    # model: models/ppe.pt
+    # labels: [helmet, vest, gloves, boots]
+    confidence_threshold: 0.5
+
+  fire_detection:
+    enabled: false
+    # model: models/fire.pt
+    # labels: [fire]
+    confidence_threshold: 0.6
+
+  smoke_detection:
+    enabled: false
+    # model: models/smoke.pt
+    # labels: [smoke]
+    confidence_threshold: 0.6
+
+  # ---- Recognition ----
+  # IDENTITY PROCESSING. Off unless explicitly enabled (Agent.md §24).
+  #
+  # face_detection finds faces and produces no personal data beyond a box.
+  # face_recognition is where VisionGuard starts identifying people; it needs
+  # an identity store you built deliberately, and refuses to start without one.
+  #
+  # Neither model ships with OpenCV 5 - see README "Face recognition" for the
+  # two ONNX files and where they come from.
+  face_detection:
+    enabled: false
+    backend: yunet
+    # model: models/face_detection_yunet_2023mar.onnx
+    confidence_threshold: 0.6
+    min_face_size: 24      # ignore faces smaller than this many pixels
+
+  face_recognition:
+    enabled: false         # requires face_detection
+    backend: sface
+    # model: models/face_recognition_sface_2021dec.onnx
+    # identity_store: models/identities.npz
+    threshold: 0.363       # cosine similarity; SFace's documented value
+    max_faces: 10
+
+  unknown_person:
+    enabled: false         # requires face_recognition
+    min_sightings: 3       # frames before an unknown face is reported
+    cooldown_seconds: 30   # quiet period after reporting
+    severity: warning
+
+  # ---- Tracking ----
+  person_tracking:
+    enabled: true          # Phase 3 - requires person_detection
+    iou_threshold: 0.3     # minimum overlap to continue a track
+    max_age: 30            # frames a track survives unmatched (occlusion)
+    min_hits: 2            # matches before a track is reported
+    publish_coasting: false  # report tracks not seen this frame
+
+  # Trackers run no model, so they cost ~0.02 ms. Each requires its detector.
+  object_tracking:
+    enabled: false         # requires object_detection
+    iou_threshold: 0.3
+    max_age: 30
+    min_hits: 2
+
+  vehicle_tracking:
+    enabled: false         # requires vehicle_detection
+    iou_threshold: 0.25    # vehicles move further between frames than people
+    max_age: 45
+    min_hits: 2
+
+  # ---- Higher-level analysis ----
+  # Consumes tracks and produces EVENTS rather than detections. It publishes
+  # them and stops there - notifying, escalating and recording are separate
+  # concerns that will consume these events later.
+  restricted_zone:
+    enabled: false
+    sources: [person_tracking]   # any tracking modules; sets the dependency
+    reference_point: bottom_center  # bottom_center (ground plane) | center
+    min_frames: 2                # frames of agreement before a state flips
+    dwell_seconds: 10            # emit zone_dwell after this long; 0 = off
+    severity: warning            # info | warning | critical
+    classes: []                  # optional label allowlist
+    # Polygons are fractions of the frame (0.0-1.0), NOT pixels, so they
+    # survive a resolution or target_width change.
+    zones:
+      - name: restricted-area
+        polygon: [[0.55, 0.35], [0.98, 0.35], [0.98, 0.98], [0.55, 0.98]]
