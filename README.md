@@ -15,7 +15,9 @@ Camera Source -> Video Source Abstraction -> OpenCV Vision Core
 
 ---
 
-## Status: Phase 7 (Face Recognition) — in progress
+## Status: Phase 9 (Pose, Fall, Attendance) — in progress
+
+Development workflow: **[WORKFLOW.md](WORKFLOW.md)**
 
 **All three video sources and eleven AI modules are implemented**, and the
 platform now produces **events**, not just detections:
@@ -55,15 +57,18 @@ Webcam / Video file / RTSP camera
 | `object_tracking` | tracking | `object_detection` | working |
 | `vehicle_tracking` | tracking | `vehicle_detection` | working |
 | `crowd_detection` | analysis | `person_detection` | working |
+| `pose_detection` | detection | — | working (COCO 17 keypoints) |
 | `restricted_zone` | analysis | any tracking module | working (emits events) |
+| `fall_detection` | analysis | `pose_detection` | working (emits events) |
 | `face_detection` | recognition | — | needs a model file |
 | `face_recognition` | recognition | `face_detection` | needs a model + identity store |
 | `unknown_person` | analysis | `face_recognition` | working (emits events) |
+| `attendance` | analysis | `face_recognition` | working (emits events) |
 | `ppe_detection` | detection | — | needs custom weights |
 | `fire_detection` | detection | — | needs custom weights |
 | `smoke_detection` | detection | — | needs custom weights |
 
-Still to build: `attendance` and `ppe_violation` (Phase 9).
+Still to build: `ppe_violation` (blocked on PPE weights), loitering, intrusion.
 
 Measured with seven modules enabled at once (three detectors sharing one
 model, three trackers, one analysis), 640px webcam on CPU:
@@ -164,7 +169,7 @@ Useful flags: `--dashboard`, `--dashboard-port`, `--config`, `--source`,
 .venv/Scripts/python.exe -m pytest
 ```
 
-526 tests. None needs a camera, a display, a model or any real face data — the
+584 tests. None needs a camera, a display, a model or any real face data — the
 webcam source runs
 against a fake `cv2.VideoCapture`, the pipeline tests use a synthetic frame
 source, and the detection module is tested against a fake backend. Tracking is
@@ -325,6 +330,88 @@ and display.
 
 ---
 
+## Pose and fall detection
+
+```yaml
+pose_detection:
+  enabled: true
+  model: yolo11n-pose.pt     # downloaded on first use
+  confidence_threshold: 0.4
+  keypoint_threshold: 0.3
+
+fall_detection:
+  enabled: true              # requires pose_detection
+  min_confidence: 0.6        # combined posture score, 0-1
+  min_frames: 5              # consecutive frames before reporting
+  cooldown_seconds: 20
+```
+
+`pose_detection` publishes 17 COCO keypoints per person to `context.poses`,
+**and** a plain person box to `context.detections` — so a tracker can consume
+it without knowing joints exist.
+
+`fall_detection` runs no model. It combines three independent geometric
+signals, so no single one can raise an alarm alone:
+
+| Signal | Reads | Fooled by |
+|---|---|---|
+| `box_ratio` | tall box vs wide box | crouching, overhead cameras |
+| `torso_angle` | shoulder→hip line vs vertical | shoulders or hips occluded |
+| `height_collapse` | head→ankle span vs body width | feet out of frame |
+
+Signals whose joints the model could not see are dropped and the rest
+re-weighted, so a partly visible person still gets a usable score instead of a
+zero.
+
+Measured on real footage: **upright people score 0.000, a horizontal person
+scores 1.000.**
+
+```
+person 1: visible_joints=17/17  fall_score=0.000
+person 2: visible_joints=8/17   fall_score=0.000   (2 of 3 signals used)
+rotated : fall_score=1.000      {box_ratio: 1.0, torso_angle: 1.0, height_collapse: 1.0}
+```
+
+Cost: pose ~46 ms on CPU at `imgsz: 416`; fall analysis **0.09 ms**.
+
+> **This is a heuristic, not a medical device.** It will miss falls and it will
+> raise false alarms. `min_frames` matters more than the geometry — a single
+> frame of someone tying a shoelace looks exactly like the start of a fall, and
+> a system that cries wolf gets switched off. Tune against your own footage,
+> and never make it the only safeguard for someone's safety.
+
+Known limitation: the pose model is trained on upright people, so it detects
+fewer people the more horizontal they are. A genuine fall is easier for it than
+the rotated-image test above, but partial detection loss is expected.
+
+---
+
+## Attendance
+
+```yaml
+attendance:
+  enabled: true          # requires face_recognition
+  min_sightings: 3       # frames before a check-in
+  absence_timeout: 60    # seconds unseen before a check-out
+```
+
+Turns "alice's face was recognised" into "alice arrived" and "alice left".
+Kept out of face recognition on purpose (Agent.md §14): recognition answers a
+question about one frame, attendance is a statement about a span of time.
+
+- **Arrival needs corroboration.** One recognised frame is not an arrival —
+  recognition has a false-positive rate, and a mistaken check-in is worse than
+  a late one.
+- **Departure is an absence, not an event.** Nobody emits "left the frame", so
+  check-out fires after `absence_timeout` with nobody seen — long enough to
+  survive someone turning around or being briefly occluded.
+- **Returning needs fresh corroboration.** Sightings reset on check-out.
+
+Emits `attendance_check_in` / `attendance_check_out`, the latter carrying
+`duration_seconds`. Persisting a timesheet is a downstream concern.
+
+---
+
 ## Face recognition
 
 **This is the part of VisionGuard that produces personal data.** All three
@@ -393,6 +480,44 @@ Design decisions, and why:
   everyone "unknown" would look like it was working.
 - **Dimension mismatches are rejected**, so a store built against a different
   face model cannot be compared against the current one.
+
+### Measuring recognition accuracy
+
+The pipeline measures FPS continuously and accuracy **not at all**, because
+accuracy needs ground truth. Supply it:
+
+```bash
+.venv/Scripts/python.exe -m tools.evaluate_recognition --faces data/faces \
+  --detector models/face_detection_yunet_2023mar.onnx \
+  --embedder models/face_recognition_sface_2021dec.onnx \
+  --hold-out mallory
+```
+
+```
+data/faces/
+  alice/  img01.jpg img02.jpg img03.jpg ...
+  bob/    img01.jpg ...
+```
+
+It enrols the first `--enroll` images per person, tests the rest, and reports:
+
+| Metric | Why it matters |
+|---|---|
+| Accuracy | overall correctness — least useful on its own |
+| **False accept rate** | a stranger mistaken for an enrolled person — the *dangerous* error |
+| **False reject rate** | a known person called unknown — the *annoying* error |
+| Wrong identity | matched, but to the wrong person |
+| Threshold sweep | the two rates trade against each other |
+
+`--hold-out` names people to deliberately *not* enrol, which is the only way
+to measure false accepts at all.
+
+**Pick `threshold` from the sweep, not from the default.** The right value
+depends on your cameras, lighting and how many people are enrolled. Raising it
+trades false accepts for false rejects: for access control favour a low FAR,
+for convenience favour a low FRR.
+
+---
 
 ### Unknown-person alerts
 

@@ -86,8 +86,12 @@ class TestBuildEnabled:
         assert resolved == ["person_detection"]
 
     def test_enabled_but_unimplemented_module_fails_fast(self):
-        with pytest.raises(ModuleNotRegisteredError, match="pose_detection"):
-            ModuleRegistry.build_enabled(config_with({"pose_detection": {"enabled": True}}))
+        # A name no phase will ever deliver, so this test does not go stale
+        # every time a real module ships.
+        with pytest.raises(ModuleNotRegisteredError, match="telepathy_detection"):
+            ModuleRegistry.build_enabled(
+                config_with({"telepathy_detection": {"enabled": True}})
+            )
 
     def test_params_reach_the_module(self):
         ModuleRegistry.register(make_module("person_detection"))

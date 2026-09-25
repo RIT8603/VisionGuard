@@ -214,6 +214,28 @@ modules:
     max_age: 45
     min_hits: 2
 
+  # ---- Pose and posture ----
+  # Pose runs its own model (a second inference, ~40 ms on CPU). It does not
+  # share with the person detector - different weights, different output.
+  pose_detection:
+    enabled: false
+    backend: ultralytics
+    model: yolo11n-pose.pt   # downloaded on first use
+    device: cpu
+    imgsz: 640
+    confidence_threshold: 0.4
+    keypoint_threshold: 0.3  # below this a joint counts as unseen
+
+  # Geometry over poses. A HEURISTIC, not a medical device - it will miss
+  # falls and raise false alarms. Tune against your own footage.
+  fall_detection:
+    enabled: false           # requires pose_detection
+    min_confidence: 0.6      # combined posture score, 0-1
+    min_frames: 5            # consecutive frames before reporting
+    cooldown_seconds: 20
+    severity: critical
+    report_recovery: true
+
   # ---- Higher-level analysis ----
   # Consumes tracks and produces EVENTS rather than detections. It publishes
   # them and stops there - notifying, escalating and recording are separate
@@ -231,3 +253,11 @@ modules:
     zones:
       - name: restricted-area
         polygon: [[0.55, 0.35], [0.98, 0.35], [0.98, 0.98], [0.55, 0.98]]
+
+  # Turns recognised faces into arrivals and departures. Requires
+  # face_recognition, so it inherits its privacy obligations.
+  attendance:
+    enabled: false           # requires face_recognition
+    min_sightings: 3         # frames before a check-in is recorded
+    absence_timeout: 60      # seconds unseen before a check-out
+    severity: info
