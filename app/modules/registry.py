@@ -72,8 +72,12 @@ BUILTIN_MODULES: Dict[str, str] = {
     # -- Phase 8 --
     "object_tracking": "app.modules.tracking.object:ObjectTrackingModule",
     "vehicle_tracking": "app.modules.tracking.vehicle:VehicleTrackingModule",
+    # -- Pose and posture analysis --
+    "pose_detection": "app.modules.detection.pose:PoseDetectionModule",
+    "fall_detection": "app.modules.analysis.fall:FallDetectionModule",
     # -- Phase 9 (higher-level analysis) --
     "restricted_zone": "app.modules.analysis.zone:RestrictedZoneModule",
+    "attendance": "app.modules.analysis.attendance:AttendanceModule",
 }
 
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -147,6 +147,88 @@ class Track:
         return payload
 
 
+#: COCO's 17 body keypoints, in the order every pose model emits them.
+KEYPOINT_NAMES: Tuple[str, ...] = (
+    "nose",
+    "left_eye", "right_eye", "left_ear", "right_ear",
+    "left_shoulder", "right_shoulder",
+    "left_elbow", "right_elbow",
+    "left_wrist", "right_wrist",
+    "left_hip", "right_hip",
+    "left_knee", "right_knee",
+    "left_ankle", "right_ankle",
+)
+
+
+@dataclass(frozen=True)
+class Keypoint:
+    """One body joint in frame pixel coordinates."""
+
+    name: str
+    x: float
+    y: float
+    confidence: float = 0.0
+
+    @property
+    def is_visible(self) -> bool:
+        """Models emit occluded joints at near-zero confidence, not absent."""
+        return self.confidence >= 0.3
+
+    def as_tuple(self) -> Tuple[float, float]:
+        return self.x, self.y
+
+
+@dataclass
+class Pose:
+    """A person's skeleton for one frame.
+
+    Produced by a pose module; consumed by posture analysis such as fall
+    detection. Keeping it in its own lane (rather than stuffing joints into a
+    ``Detection``) means a consumer asks for poses and gets poses.
+    """
+
+    bbox: BBox
+    keypoints: List[Keypoint] = field(default_factory=list)
+    confidence: float = 0.0
+    source_module: str = ""
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+    def keypoint(self, name: str) -> Optional[Keypoint]:
+        for point in self.keypoints:
+            if point.name == name:
+                return point
+        return None
+
+    def visible(self, *names: str) -> List[Keypoint]:
+        """Only the named joints the model was actually confident about."""
+        found = [self.keypoint(name) for name in names]
+        return [point for point in found if point is not None and point.is_visible]
+
+    def midpoint(self, left: str, right: str) -> Optional[Tuple[float, float]]:
+        """Centre of a symmetric pair, using whichever side is visible."""
+        points = self.visible(left, right)
+        if not points:
+            return None
+        return (
+            sum(p.x for p in points) / len(points),
+            sum(p.y for p in points) / len(points),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "bbox": [round(v, 2) for v in self.bbox.as_list()],
+            "confidence": round(float(self.confidence), 4),
+            "keypoints": {
+                point.name: [round(point.x, 1), round(point.y, 1), round(point.confidence, 3)]
+                for point in self.keypoints
+                if point.is_visible
+            },
+        }
+        if self.extra:
+            payload["extra"] = self.extra
+        return payload
+
+
 class Severity(str, Enum):
     """How much attention an event deserves.
 
@@ -237,6 +319,7 @@ class FrameContext:
 
     detections: Dict[str, List[Detection]] = field(default_factory=dict)
     tracks: Dict[str, List[Track]] = field(default_factory=dict)
+    poses: Dict[str, List[Pose]] = field(default_factory=dict)
     events: List[Event] = field(default_factory=list)
     overlays: List[Overlay] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -295,6 +378,21 @@ class FrameContext:
             return list(self.tracks.get(module_name, []))
         return [trk for items in self.tracks.values() for trk in items]
 
+    # ---------------- poses ---------------- #
+
+    def add_poses(self, module_name: str, poses: Iterable[Pose]) -> None:
+        """Publish poses under the producing module's name."""
+        items = list(poses)
+        for pose in items:
+            if not pose.source_module:
+                pose.source_module = module_name
+        self.poses.setdefault(module_name, []).extend(items)
+
+    def get_poses(self, module_name: str | None = None) -> List[Pose]:
+        if module_name is not None:
+            return list(self.poses.get(module_name, []))
+        return [pose for items in self.poses.values() for pose in items]
+
     # ---------------- events ---------------- #
 
     def add_event(self, event: Event) -> None:
@@ -342,6 +440,10 @@ class FrameContext:
             "tracks": {
                 name: [trk.to_dict() for trk in items]
                 for name, items in self.tracks.items()
+            },
+            "poses": {
+                name: [pose.to_dict() for pose in items]
+                for name, items in self.poses.items()
             },
             "events": [event.to_dict() for event in self.events],
             "metadata": self.metadata,
