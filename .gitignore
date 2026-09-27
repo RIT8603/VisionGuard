@@ -18,13 +18,13 @@ env/
 logs/
 *.log
 
-# Model weights (large binaries - fetched or trained, never committed)
-models/*
-!models/.gitkeep
-!models/README.md
+# Model weights: the binaries are never committed, the folder layout is.
 *.pt
 *.onnx
 *.engine
+*.npz
+!models/**/.gitkeep
+!models/README.md
 
 # Sample media
 data/

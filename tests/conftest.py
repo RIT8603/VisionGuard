@@ -17,12 +17,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.core.config import VisionGuardConfig  # noqa: E402
-from app.core.context import FrameContext  # noqa: E402
-from app.models import factory as detector_factory  # noqa: E402
-from app.models.base import DetectorBackend, ModelLoadError, RawDetection  # noqa: E402
-from app.modules.base import BaseAIModule, ModuleResult, ModuleType  # noqa: E402
-from app.modules.registry import ModuleRegistry  # noqa: E402
+from computer_vision.core.config import VisionGuardConfig  # noqa: E402
+from computer_vision.core.context import FrameContext  # noqa: E402
+from computer_vision.inference import factory as detector_factory  # noqa: E402
+from computer_vision.inference.base import DetectorBackend, ModelLoadError, RawDetection  # noqa: E402
+from computer_vision.modules.base import BaseAIModule, ModuleResult, ModuleType  # noqa: E402
+from computer_vision.modules.registry import ModuleRegistry  # noqa: E402
 
 _ENV_VARS_TO_CLEAR = (
     "VIDEO_SOURCE",

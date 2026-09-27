@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.context import BBox, Detection, FrameContext, Track
+from computer_vision.core.context import BBox, Detection, FrameContext, Track
 
 
 class TestBBox:

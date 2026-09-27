@@ -18,11 +18,11 @@ import cv2
 import numpy as np
 import pytest
 
-from app.core.config import CaptureBackend, ConfigError, build_config
-from app.sources import opencv_base
-from app.sources.base import FrameReadError, SourceNotOpenError, SourceOpenError
-from app.sources.factory import available_source_types, create_video_source
-from app.sources.rtsp import RTSPSource, redact_url
+from computer_vision.core.config import CaptureBackend, ConfigError, build_config
+from computer_vision.sources import opencv_base
+from computer_vision.sources.base import FrameReadError, SourceNotOpenError, SourceOpenError
+from computer_vision.sources.factory import available_source_types, create_video_source
+from computer_vision.sources.rtsp import RTSPSource, redact_url
 
 URL = "rtsp://admin:hunter2@10.0.0.5:554/Streaming/Channels/101"
 
@@ -242,7 +242,7 @@ class TestFFmpegOptions:
 
     def test_webcam_does_not_get_capture_params(self, fake_stream):
         """The params form is RTSP-specific; other sources keep the plain call."""
-        from app.sources.webcam import WebcamSource
+        from computer_vision.sources.webcam import WebcamSource
 
         webcam_cfg = build_config({"video": {"source": "webcam"}}).video
         assert WebcamSource(webcam_cfg)._capture_params() == []
@@ -493,8 +493,8 @@ class TestReconnect:
 
 class TestPipelineIntegration:
     def _pipeline(self, config, sink):
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
 
         return VisionPipeline(
             config=config,
@@ -505,7 +505,7 @@ class TestPipelineIntegration:
         )
 
     def test_pipeline_runs_an_rtsp_stream(self, fake_stream):
-        from app.core.pipeline import RunLimits
+        from computer_vision.core.pipeline import RunLimits
         from tests.test_pipeline import RecordingSink
 
         config = build_config(
@@ -522,7 +522,7 @@ class TestPipelineIntegration:
 
     def test_a_transient_gap_does_not_end_the_run(self, fake_stream):
         """The Phase 1 pipeline treated a None read as end-of-stream."""
-        from app.core.pipeline import RunLimits
+        from computer_vision.core.pipeline import RunLimits
         from tests.test_pipeline import RecordingSink
 
         config = build_config(
@@ -548,8 +548,8 @@ class TestPipelineIntegration:
 
         source.read = flaky_read
 
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
 
         sink = RecordingSink()
         stats = VisionPipeline(
@@ -563,8 +563,8 @@ class TestPipelineIntegration:
         assert stats.frames_processed == 4
 
     def test_a_prolonged_stall_ends_the_run(self, fake_stream):
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
         from tests.test_pipeline import RecordingSink
 
         config = build_config(
@@ -591,7 +591,7 @@ class TestPipelineIntegration:
         assert stats.frames_processed == 0
 
     def test_stall_check_can_be_disabled(self, fake_stream):
-        from app.core.pipeline import RunLimits
+        from computer_vision.core.pipeline import RunLimits
         from tests.test_pipeline import RecordingSink
 
         config = build_config(

@@ -14,25 +14,25 @@ import zipfile
 import numpy as np
 import pytest
 
-from app.core.config import build_config
-from app.core.context import BBox, Detection, FrameContext, Severity
-from app.identity.store import IdentityStore, IdentityStoreError
-from app.models import face_factory
-from app.models.face_base import (
+from computer_vision.core.config import build_config
+from computer_vision.core.context import BBox, Detection, FrameContext, Severity
+from computer_vision.identity.store import IdentityStore, IdentityStoreError
+from computer_vision.inference import face_factory
+from computer_vision.inference.face_base import (
     BackendError,
     FaceDetectorBackend,
     FaceEmbedderBackend,
     RawFace,
     cosine_similarity,
 )
-from app.modules.base import ModuleInitializationError, ModuleType
-from app.modules.recognition.face_detection import FaceDetectionModule
-from app.modules.recognition.face_recognition import FaceRecognitionModule
-from app.modules.recognition.unknown_person import (
+from computer_vision.modules.base import ModuleInitializationError, ModuleType
+from computer_vision.modules.recognition.face_detection import FaceDetectionModule
+from computer_vision.modules.recognition.face_recognition import FaceRecognitionModule
+from computer_vision.modules.recognition.unknown_person import (
     EVENT_UNKNOWN_PERSON,
     UnknownPersonModule,
 )
-from app.modules.registry import ModuleDependencyError, ModuleRegistry
+from computer_vision.modules.registry import ModuleDependencyError, ModuleRegistry
 
 DIM = 8
 
@@ -699,7 +699,7 @@ class TestWiring:
 
     def test_all_identity_modules_are_disabled_in_the_shipped_config(self):
         """Agent.md §24: identity processing is opt-in, never on by default."""
-        from app.core.config import load_config
+        from computer_vision.core.config import load_config
 
         config = load_config("configs/config.yaml", use_env=False)
 
@@ -719,8 +719,8 @@ class TestWiring:
 class TestFullChain:
     def test_detection_to_recognition_to_event(self, tmp_path):
         """A stranger walks in front of the camera and one event results."""
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
         from tests.test_pipeline import RecordingSink, SyntheticSource
 
         FakeFaceDetector.scripted = [a_face(100)]
@@ -754,8 +754,8 @@ class TestFullChain:
         assert [e.event_type for e in events] == [EVENT_UNKNOWN_PERSON]
 
     def test_an_enrolled_person_raises_nothing(self, tmp_path):
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
         from tests.test_pipeline import RecordingSink, SyntheticSource
 
         alice = vec(1)

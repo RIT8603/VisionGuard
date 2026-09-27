@@ -12,24 +12,24 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from app.core.config import build_config
-from app.core.context import BBox, Detection, FrameContext, Keypoint, Pose, Severity
-from app.models.pose_backend import PoseBackend, RawPose, create_pose_backend
-from app.models import pose_backend as pose_backend_module
-from app.modules.analysis.attendance import (
+from computer_vision.core.config import build_config
+from computer_vision.core.context import BBox, Detection, FrameContext, Keypoint, Pose, Severity
+from computer_vision.inference.pose_backend import PoseBackend, RawPose, create_pose_backend
+from computer_vision.inference import pose_backend as pose_backend_module
+from computer_vision.modules.analysis.attendance import (
     EVENT_CHECK_IN,
     EVENT_CHECK_OUT,
     AttendanceModule,
 )
-from app.modules.analysis.fall import (
+from computer_vision.modules.analysis.fall import (
     EVENT_FALL,
     EVENT_RECOVERED,
     FallDetectionModule,
     fall_score,
 )
-from app.modules.base import ModuleInitializationError, ModuleType
-from app.modules.detection.pose import PoseDetectionModule
-from app.modules.registry import ModuleDependencyError, ModuleRegistry
+from computer_vision.modules.base import ModuleInitializationError, ModuleType
+from computer_vision.modules.detection.pose import PoseDetectionModule
+from computer_vision.modules.registry import ModuleDependencyError, ModuleRegistry
 
 
 class FakePoseBackend(PoseBackend):
@@ -39,7 +39,7 @@ class FakePoseBackend(PoseBackend):
 
     def load(self):
         if FakePoseBackend.fail_on_load:
-            from app.models.base import ModelLoadError
+            from computer_vision.inference.base import ModelLoadError
 
             raise ModelLoadError("no pose model")
         self._loaded = True
@@ -260,7 +260,7 @@ class TestPoseDetection:
             build_pose()
 
     def test_unknown_backend_is_reported(self):
-        from app.models.base import BackendError
+        from computer_vision.inference.base import BackendError
 
         with pytest.raises(BackendError, match="Unknown pose backend"):
             create_pose_backend("telepathy")
@@ -603,7 +603,7 @@ class TestWiring:
             )
 
     def test_new_modules_ship_disabled(self):
-        from app.core.config import load_config
+        from computer_vision.core.config import load_config
 
         config = load_config("configs/config.yaml", use_env=False)
 
@@ -611,8 +611,8 @@ class TestWiring:
             assert config.modules[name].enabled is False
 
     def test_full_chain_through_the_pipeline(self):
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
         from tests.test_pipeline import RecordingSink, SyntheticSource
 
         # A person lying on the floor, for the whole clip.
@@ -656,7 +656,7 @@ class TestWiring:
 
 class TestEvaluationHarness:
     def _store_with(self, **people):
-        from app.identity import IdentityStore
+        from computer_vision.identity import IdentityStore
 
         store = IdentityStore(threshold=0.5)
         for name, embedding in people.items():

@@ -12,18 +12,18 @@ from typing import Any, Dict, List
 import numpy as np
 import pytest
 
-from app.core.config import build_config
-from app.core.context import FrameContext
-from app.models.base import (
+from computer_vision.core.config import build_config
+from computer_vision.core.context import FrameContext
+from computer_vision.inference.base import (
     BackendError,
     DetectorBackend,
     ModelLoadError,
     RawDetection,
 )
-from app.models.factory import available_backends, create_detector
-from app.modules.base import ModuleInitializationError, ModuleType
-from app.modules.detection.person import COCO_PERSON_CLASS_ID, PersonDetectionModule
-from app.modules.registry import ModuleRegistry
+from computer_vision.inference.factory import available_backends, create_detector
+from computer_vision.modules.base import ModuleInitializationError, ModuleType
+from computer_vision.modules.detection.person import COCO_PERSON_CLASS_ID, PersonDetectionModule
+from computer_vision.modules.registry import ModuleRegistry
 from tests.conftest import FakeDetectorBackend, inner_backend
 
 
@@ -217,7 +217,7 @@ class TestUltralyticsAdapter:
     """The translation layer, without importing torch or ultralytics."""
 
     def _backend(self):
-        from app.models.ultralytics_backend import UltralyticsDetector
+        from computer_vision.inference.ultralytics_backend import UltralyticsDetector
 
         backend = UltralyticsDetector({"model": "yolo11n.pt"})
         backend._names = {0: "person", 2: "car"}

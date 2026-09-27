@@ -13,10 +13,10 @@ import cv2
 import numpy as np
 import pytest
 
-from app.core.config import CaptureBackend, build_config
-from app.sources.base import SourceExhausted, SourceNotOpenError, SourceOpenError
-from app.sources.factory import available_source_types, create_video_source
-from app.sources.video_file import VideoFileSource
+from computer_vision.core.config import CaptureBackend, build_config
+from computer_vision.sources.base import SourceExhausted, SourceNotOpenError, SourceOpenError
+from computer_vision.sources.factory import available_source_types, create_video_source
+from computer_vision.sources.video_file import VideoFileSource
 
 FRAME_SIZE = (320, 240)  # (width, height)
 
@@ -106,7 +106,7 @@ class TestOpen:
             source.open()
 
     def test_config_requires_a_path(self):
-        from app.core.config import ConfigError
+        from computer_vision.core.config import ConfigError
 
         with pytest.raises(ConfigError, match="path is required"):
             build_config({"video": {"source": "file"}})
@@ -233,7 +233,7 @@ class TestSeeking:
             VideoFileSource(file_config(clip)).seek(1)
 
     def test_negative_start_frame_is_rejected(self, clip):
-        from app.core.config import ConfigError
+        from computer_vision.core.config import ConfigError
 
         with pytest.raises(ConfigError, match="start_frame"):
             file_config(clip, start_frame=-1)
@@ -266,7 +266,7 @@ class TestPacing:
         source.release()
 
     def test_negative_playback_speed_is_rejected(self, clip):
-        from app.core.config import ConfigError
+        from computer_vision.core.config import ConfigError
 
         with pytest.raises(ConfigError, match="playback_speed"):
             file_config(clip, playback_speed=-1.0)
@@ -283,8 +283,8 @@ class TestPacing:
 class TestPipelineIntegration:
     def test_pipeline_runs_a_file_to_completion(self, clip):
         """The whole point: a repeatable run with a definite end."""
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
         from tests.test_pipeline import RecordingSink
 
         config = build_config(
@@ -310,8 +310,8 @@ class TestPipelineIntegration:
 
     def test_two_runs_over_the_same_file_are_identical(self, clip):
         """Reproducibility is the reason this source exists."""
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
         from tests.test_pipeline import RecordingSink
 
         def run_once():
@@ -336,19 +336,19 @@ class TestPipelineIntegration:
 
 class TestCliInference:
     def test_video_path_implies_the_file_source(self):
-        from app.main import build_parser, infer_source
+        from backend.main import build_parser, infer_source
 
         args = build_parser().parse_args(["--video-path", "clip.mp4"])
         assert infer_source(args) == "file"
 
     def test_rtsp_url_implies_the_rtsp_source(self):
-        from app.main import build_parser, infer_source
+        from backend.main import build_parser, infer_source
 
         args = build_parser().parse_args(["--rtsp-url", "rtsp://x"])
         assert infer_source(args) == "rtsp"
 
     def test_explicit_source_is_not_overridden(self):
-        from app.main import build_parser, infer_source
+        from backend.main import build_parser, infer_source
 
         args = build_parser().parse_args(
             ["--source", "webcam", "--video-path", "clip.mp4"]
@@ -356,6 +356,6 @@ class TestCliInference:
         assert infer_source(args) == "webcam"
 
     def test_no_flags_leaves_the_config_alone(self):
-        from app.main import build_parser, infer_source
+        from backend.main import build_parser, infer_source
 
         assert infer_source(build_parser().parse_args([])) is None

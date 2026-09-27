@@ -220,9 +220,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
-    from app.identity import IdentityStore
-    from app.models.opencv_face import SFaceEmbedder, YuNetFaceDetector
-    from app.utils.logger import setup_logging
+    from computer_vision.identity import IdentityStore
+    from computer_vision.inference.opencv_face import SFaceEmbedder, YuNetFaceDetector
+    from computer_vision.utils.logger import setup_logging
 
     setup_logging("WARNING")
 

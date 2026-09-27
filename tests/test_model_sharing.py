@@ -10,19 +10,19 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.core.config import build_config
-from app.core.context import FrameContext
-from app.models.base import RawDetection
-from app.models.factory import (
+from computer_vision.core.config import build_config
+from computer_vision.core.context import FrameContext
+from computer_vision.inference.base import RawDetection
+from computer_vision.inference.factory import (
     create_detector,
     reset_detector_cache,
     shared_detector_count,
 )
-from app.models.shared import SharedDetector, share_key
-from app.modules.detection.object import ObjectDetectionModule
-from app.modules.detection.person import PersonDetectionModule
-from app.modules.detection.vehicle import VehicleDetectionModule
-from app.modules.registry import ModuleRegistry
+from computer_vision.inference.shared import SharedDetector, share_key
+from computer_vision.modules.detection.object import ObjectDetectionModule
+from computer_vision.modules.detection.person import PersonDetectionModule
+from computer_vision.modules.detection.vehicle import VehicleDetectionModule
+from computer_vision.modules.registry import ModuleRegistry
 from tests.conftest import FakeDetectorBackend, inner_backend
 
 
@@ -243,8 +243,8 @@ class TestInferenceSharing:
 
 class TestPipelineSharing:
     def test_three_detectors_cost_one_inference_per_frame(self):
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
         from tests.test_pipeline import RecordingSink, SyntheticSource
 
         FakeDetectorBackend.scripted = [raw("person"), raw("car")]
@@ -276,8 +276,8 @@ class TestPipelineSharing:
         assert shared.cache_hits == 10
 
     def test_shutdown_unloads_exactly_once(self):
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
         from tests.test_pipeline import RecordingSink, SyntheticSource
 
         FakeDetectorBackend.scripted = [raw("person")]

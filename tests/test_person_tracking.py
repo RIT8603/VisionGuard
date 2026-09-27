@@ -11,13 +11,13 @@ from typing import List
 import numpy as np
 import pytest
 
-from app.core.config import build_config
-from app.core.context import BBox, Detection, FrameContext
-from app.modules.base import ModuleType
-from app.modules.detection.person import PersonDetectionModule
-from app.modules.registry import ModuleRegistry
-from app.modules.tracking.person import PersonTrackingModule
-from app.modules.tracking.tracker_core import IoUTracker, TrackState
+from computer_vision.core.config import build_config
+from computer_vision.core.context import BBox, Detection, FrameContext
+from computer_vision.modules.base import ModuleType
+from computer_vision.modules.detection.person import PersonDetectionModule
+from computer_vision.modules.registry import ModuleRegistry
+from computer_vision.modules.tracking.person import PersonTrackingModule
+from computer_vision.modules.tracking.tracker_core import IoUTracker, TrackState
 
 
 def det(x1, y1, x2, y2, conf=0.9, label="person") -> Detection:
@@ -348,7 +348,7 @@ class TestRegistryWiring:
         assert [m.module_name for m in built] == ["person_detection", "person_tracking"]
 
     def test_tracking_without_detection_is_rejected(self):
-        from app.modules.registry import ModuleDependencyError
+        from computer_vision.modules.registry import ModuleDependencyError
 
         with pytest.raises(ModuleDependencyError, match="person_detection"):
             ModuleRegistry.build_enabled(
@@ -368,9 +368,9 @@ class TestFullPipeline:
     """Detection -> context -> tracking, driven by the real pipeline."""
 
     def _run(self, sequence, frames, **tracking_params):
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
-        from app.models.base import RawDetection
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
+        from computer_vision.inference.base import RawDetection
         from tests.conftest import FakeDetectorBackend
         from tests.test_pipeline import RecordingSink, SyntheticSource
 
