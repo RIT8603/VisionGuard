@@ -28,7 +28,7 @@ from computer_vision.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_MODEL = "models/detection/yolo11n.pt"
+DEFAULT_MODEL = "computer_vision/Model/detection/yolo11n.pt"
 
 
 class UltralyticsDetector(DetectorBackend):

@@ -244,23 +244,42 @@ this platform targets. Measure on **your** footage before lowering it.
 Three layers, and the dependency arrow only ever points one way:
 
 ```
-frontend/  ──uses──▶  backend/  ──uses──▶  computer_vision/
-                                                   │
-                                            reads  ▼
-                                              models/
+        FRONTEND
+           │
+           ▼
+       BACKEND API
+           │
+           ▼
+    COMPUTER VISION
+           │
+   ┌───────┴───────┐
+   ▼               ▼
+modules/        Model/
+"what to do"   "AI weights"
+   └───────┬───────┘
+           ▼
+       inference/
+           │
+           ▼
+       CV Result ──▶ Backend ──▶ Frontend
 ```
 
 ```
 VisionGuard/
 ├── computer_vision/        THE VISION ENGINE - runs with no server, no API, no UI
-│   ├── core/               pipeline, context, config, frame processing, output sinks
-│   ├── sources/            webcam, video file, RTSP  (one interface)
-│   ├── modules/            detection / recognition / tracking / analysis
+│   ├── modules/            WHAT TO DO - the CV features
 │   │   ├── detection/      person, object, vehicle, pose, crowd, PPE, fire, smoke
 │   │   ├── recognition/    face detection, face recognition, unknown person
 │   │   ├── tracking/       person, object, vehicle  +  the IoU algorithm
 │   │   └── analysis/       restricted zone, fall, attendance  (produce events)
-│   ├── inference/          model adapters: Ultralytics, OpenCV face, pose, sharing
+│   ├── Model/              AI WEIGHTS - pretrained / fine-tuned, nothing else
+│   │   ├── detection/      yolo11n.pt
+│   │   ├── pose/           yolo11n-pose.pt
+│   │   ├── face/           YuNet + SFace .onnx, identities.npz
+│   │   └── custom/         your own PPE / fire / smoke weights
+│   ├── inference/          HOW TO RUN THEM - Ultralytics, OpenCV face, pose, sharing
+│   ├── core/               pipeline, context, config, frame processing, output sinks
+│   ├── sources/            webcam, video file, RTSP  (one interface)
 │   ├── identity/           enrolled face embeddings  (personal data)
 │   └── utils/              logging, timing, annotation
 │
@@ -272,17 +291,22 @@ VisionGuard/
 ├── frontend/               USER INTERFACE
 │   └── static/index.html
 │
-├── models/                 ALL AI MODEL WEIGHTS - nothing else
-│   ├── detection/          yolo11n.pt
-│   ├── pose/               yolo11n-pose.pt
-│   ├── face/               YuNet + SFace .onnx, identities.npz
-│   └── custom/             your own PPE / fire / smoke weights
-│
 ├── configs/config.yaml     every behavioural switch
 ├── docs/                   the authoritative specification
 ├── tests/                  584 unit + 4 integration
 └── tools/                  offline evaluation (recognition accuracy)
 ```
+
+Inside `computer_vision/`, the three model-related folders divide cleanly:
+
+| Folder | Holds | Example |
+|---|---|---|
+| `modules/` | **what to do** — a CV feature | "find people and publish boxes" |
+| `Model/` | **the weights** — binaries only | `yolo11n.pt` |
+| `inference/` | **how to run them** — runtime adapters | the Ultralytics wrapper |
+
+A module names a weight file; the adapter loads it. Swapping Ultralytics for
+ONNX Runtime touches `inference/` alone.
 
 **Why these boundaries.** `computer_vision/` must stay runnable with no web
 stack at all — that is what keeps it embeddable and testable. So the sink that
@@ -511,14 +535,14 @@ from computer_vision.identity import IdentityStore
 
 store = IdentityStore(threshold=0.363)
 store.enroll("alice", embedding)   # embedding from SFaceEmbedder.embed()
-store.save("models/identities.npz")
+store.save("computer_vision/Model/face/identities.npz")
 ```
 
 ```yaml
 face_recognition:
   enabled: true
-  model: models/face_recognition_sface_2021dec.onnx
-  identity_store: models/identities.npz
+  model: computer_vision/Model/face/face_recognition_sface_2021dec.onnx
+  identity_store: computer_vision/Model/face/identities.npz
   threshold: 0.363     # cosine similarity; SFace's documented value
 ```
 
@@ -551,8 +575,8 @@ accuracy needs ground truth. Supply it:
 
 ```bash
 .venv/Scripts/python.exe -m tools.evaluate_recognition --faces data/faces \
-  --detector models/face_detection_yunet_2023mar.onnx \
-  --embedder models/face_recognition_sface_2021dec.onnx \
+  --detector computer_vision/Model/face/face_detection_yunet_2023mar.onnx \
+  --embedder computer_vision/Model/face/face_recognition_sface_2021dec.onnx \
   --hold-out mallory
 ```
 

@@ -35,8 +35,8 @@ class FaceRecognitionModule(BaseAIModule):
         face_recognition:
           enabled: true
           backend: sface
-          model: models/face_recognition_sface_2021dec.onnx   # required
-          identity_store: models/identities.npz               # required
+          model: computer_vision/Model/face/face_recognition_sface_2021dec.onnx   # required
+          identity_store: computer_vision/Model/face/identities.npz               # required
           threshold: 0.363        # cosine similarity; SFace's documented value
           max_faces: 10           # cap embeddings per frame
 
