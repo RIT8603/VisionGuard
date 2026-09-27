@@ -32,7 +32,7 @@ def _bundled_asset(name: str) -> Path:
 @pytest.fixture(scope="module")
 def detector():
     module = PersonDetectionModule(
-        {"model": "models/detection/yolo11n.pt", "device": "cpu", "confidence_threshold": 0.4}
+        {"model": "computer_vision/Model/detection/yolo11n.pt", "device": "cpu", "confidence_threshold": 0.4}
     )
     try:
         module.initialize()

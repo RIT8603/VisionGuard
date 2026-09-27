@@ -146,7 +146,7 @@ class TestVehicleDetection:
         """A custom model has its own class names; labels still select them."""
         FakeDetectorBackend.scripted = [raw("forklift"), raw("car")]
         module = build(
-            VehicleDetectionModule, model="models/forklifts.pt", labels=["forklift"]
+            VehicleDetectionModule, model="computer_vision/Model/custom/forklifts.pt", labels=["forklift"]
         )
         ctx = frame_ctx()
 
@@ -193,12 +193,12 @@ class TestCustomModelModules:
 
     @pytest.mark.parametrize("cls", CUSTOM_MODEL_MODULES)
     def test_works_once_a_model_is_supplied(self, cls):
-        module = build(cls, model=f"models/{cls.module_name}.pt")
+        module = build(cls, model=f"computer_vision/Model/custom/{cls.module_name}.pt")
         assert module._backend.is_loaded
 
     def test_ppe_reports_configured_items(self):
         FakeDetectorBackend.scripted = [raw("helmet"), raw("vest"), raw("person")]
-        module = build(PPEDetectionModule, model="models/ppe.pt")
+        module = build(PPEDetectionModule, model="computer_vision/Model/custom/ppe.pt")
         ctx = frame_ctx()
 
         module.process(ctx)
@@ -209,7 +209,7 @@ class TestCustomModelModules:
         """Datasets disagree on naming: hardhat vs helmet."""
         FakeDetectorBackend.scripted = [raw("hardhat"), raw("safety-vest")]
         module = build(
-            PPEDetectionModule, model="models/ppe.pt", labels=["hardhat", "safety-vest"]
+            PPEDetectionModule, model="computer_vision/Model/custom/ppe.pt", labels=["hardhat", "safety-vest"]
         )
         ctx = frame_ctx()
 
@@ -221,15 +221,15 @@ class TestCustomModelModules:
         FakeDetectorBackend.scripted = [raw("fire"), raw("smoke")]
         ctx = frame_ctx()
 
-        build(FireDetectionModule, model="models/fire.pt").process(ctx)
-        build(SmokeDetectionModule, model="models/smoke.pt").process(ctx)
+        build(FireDetectionModule, model="computer_vision/Model/custom/fire.pt").process(ctx)
+        build(SmokeDetectionModule, model="computer_vision/Model/custom/smoke.pt").process(ctx)
 
         assert [d.label for d in ctx.get_detections("fire_detection")] == ["fire"]
         assert [d.label for d in ctx.get_detections("smoke_detection")] == ["smoke"]
 
     def test_custom_model_path_reaches_the_backend(self):
-        module = build(FireDetectionModule, model="models/custom_fire.pt")
-        assert module._backend.params["model"] == "models/custom_fire.pt"
+        module = build(FireDetectionModule, model="computer_vision/Model/custom/custom_fire.pt")
+        assert module._backend.params["model"] == "computer_vision/Model/custom/custom_fire.pt"
 
 
 # --------------------------------------------------------------------------- #

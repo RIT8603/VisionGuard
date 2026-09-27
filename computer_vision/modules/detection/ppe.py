@@ -25,7 +25,7 @@ class PPEDetectionModule(LabelFilteredDetectionModule):
 
         ppe_detection:
           enabled: true
-          model: models/ppe.pt          # required - see below
+          model: computer_vision/Model/custom/ppe.pt          # required - see below
           labels: [helmet, vest, gloves, boots]
           confidence_threshold: 0.5
 

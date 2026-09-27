@@ -6,8 +6,8 @@ accuracy needs ground truth. This supplies it.
 Usage::
 
     python -m tools.evaluate_recognition --faces data/faces \\
-        --detector models/face_detection_yunet_2023mar.onnx \\
-        --embedder models/face_recognition_sface_2021dec.onnx
+        --detector computer_vision/Model/face/face_detection_yunet_2023mar.onnx \\
+        --embedder computer_vision/Model/face/face_recognition_sface_2021dec.onnx
 
 Expected layout - one directory per person::
 

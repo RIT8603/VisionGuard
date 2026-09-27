@@ -243,7 +243,7 @@ Before enabling anything under "Recognition":
 
 - [ ] Is identity processing actually required, or is a person box enough?
 - [ ] Who enrolled the identities, and can they be shown consent?
-- [ ] Is `models/identities.npz` backed up and access-controlled? It is
+- [ ] Is `computer_vision/Model/face/identities.npz` backed up and access-controlled? It is
       personal data.
 - [ ] Is there a process for `store.remove(name)` on request?
 - [ ] Is the dashboard on `127.0.0.1`? It streams live camera with no auth.

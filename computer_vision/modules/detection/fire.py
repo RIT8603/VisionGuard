@@ -25,7 +25,7 @@ class FireDetectionModule(LabelFilteredDetectionModule):
 
         fire_detection:
           enabled: true
-          model: models/fire.pt      # required
+          model: computer_vision/Model/custom/fire.pt      # required
           labels: [fire]
           confidence_threshold: 0.6  # higher than usual; see the note above
     """

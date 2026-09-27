@@ -20,7 +20,7 @@ from computer_vision.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_POSE_MODEL = "models/pose/yolo11n-pose.pt"
+DEFAULT_POSE_MODEL = "computer_vision/Model/pose/yolo11n-pose.pt"
 
 __all__ = [
     "BackendError",

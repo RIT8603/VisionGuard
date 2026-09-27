@@ -113,7 +113,7 @@ modules:
   person_detection:
     enabled: true          # Phase 2
     backend: ultralytics   # see computer_vision/inference/factory.py for available backends
-    model: models/detection/yolo11n.pt      # downloaded once on first run
+    model: computer_vision/Model/detection/yolo11n.pt      # downloaded once on first run
     device: cpu            # cpu | cuda | 0 | 0,1 ...
     imgsz: 640             # inference resolution; lower is faster
     confidence_threshold: 0.4
@@ -125,13 +125,13 @@ modules:
   # Set `share_model: false` on a module to opt it out.
   object_detection:
     enabled: false
-    model: models/detection/yolo11n.pt
+    model: computer_vision/Model/detection/yolo11n.pt
     confidence_threshold: 0.4
     labels: []             # empty = every class the model knows (80 for COCO)
 
   vehicle_detection:
     enabled: false
-    model: models/detection/yolo11n.pt
+    model: computer_vision/Model/detection/yolo11n.pt
     confidence_threshold: 0.4
     labels: [car, truck, bus, motorcycle, bicycle]
 
@@ -147,19 +147,19 @@ modules:
   # Set `labels` to match your model's own class names.
   ppe_detection:
     enabled: false
-    # model: models/custom/ppe.pt
+    # model: computer_vision/Model/custom/ppe.pt
     # labels: [helmet, vest, gloves, boots]
     confidence_threshold: 0.5
 
   fire_detection:
     enabled: false
-    # model: models/custom/fire.pt
+    # model: computer_vision/Model/custom/fire.pt
     # labels: [fire]
     confidence_threshold: 0.6
 
   smoke_detection:
     enabled: false
-    # model: models/custom/smoke.pt
+    # model: computer_vision/Model/custom/smoke.pt
     # labels: [smoke]
     confidence_threshold: 0.6
 
@@ -175,15 +175,15 @@ modules:
   face_detection:
     enabled: false
     backend: yunet
-    # model: models/face/face_detection_yunet_2023mar.onnx
+    # model: computer_vision/Model/face/face_detection_yunet_2023mar.onnx
     confidence_threshold: 0.6
     min_face_size: 24      # ignore faces smaller than this many pixels
 
   face_recognition:
     enabled: false         # requires face_detection
     backend: sface
-    # model: models/face/face_recognition_sface_2021dec.onnx
-    # identity_store: models/face/identities.npz
+    # model: computer_vision/Model/face/face_recognition_sface_2021dec.onnx
+    # identity_store: computer_vision/Model/face/identities.npz
     threshold: 0.363       # cosine similarity; SFace's documented value
     max_faces: 10
 
@@ -220,7 +220,7 @@ modules:
   pose_detection:
     enabled: false
     backend: ultralytics
-    model: models/pose/yolo11n-pose.pt   # downloaded on first use
+    model: computer_vision/Model/pose/yolo11n-pose.pt   # downloaded on first use
     device: cpu
     imgsz: 640
     confidence_threshold: 0.4

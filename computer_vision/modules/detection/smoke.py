@@ -24,7 +24,7 @@ class SmokeDetectionModule(LabelFilteredDetectionModule):
 
         smoke_detection:
           enabled: true
-          model: models/smoke.pt     # required
+          model: computer_vision/Model/custom/smoke.pt     # required
           labels: [smoke]
           confidence_threshold: 0.6
     """

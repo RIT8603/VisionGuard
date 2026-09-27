@@ -29,7 +29,7 @@ class FaceDetectionModule(BaseAIModule):
         face_detection:
           enabled: true
           backend: yunet
-          model: models/face_detection_yunet_2023mar.onnx   # required
+          model: computer_vision/Model/face/face_detection_yunet_2023mar.onnx   # required
           confidence_threshold: 0.6
           min_face_size: 24        # ignore faces smaller than this, in pixels
 

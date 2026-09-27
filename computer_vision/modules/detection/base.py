@@ -21,7 +21,7 @@ from computer_vision.inference.factory import create_detector
 from computer_vision.modules.base import BaseAIModule, ModuleInitializationError, ModuleResult, ModuleType
 
 DEFAULT_BACKEND = "ultralytics"
-DEFAULT_COCO_MODEL = "models/detection/yolo11n.pt"
+DEFAULT_COCO_MODEL = "computer_vision/Model/detection/yolo11n.pt"
 
 #: Class ids in the COCO dataset that the stock models are trained on.
 COCO_CLASS_IDS: Dict[str, int] = {
@@ -132,7 +132,7 @@ class LabelFilteredDetectionModule(BaseAIModule):
             f"custom-trained detector, for example:\n"
             f"    {self.module_name}:\n"
             f"      enabled: true\n"
-            f"      model: models/{self.module_name}.pt\n"
+            f"      model: computer_vision/Model/custom/{self.module_name}.pt\n"
             + (f"{self.model_hint}\n" if self.model_hint else "")
         )
 

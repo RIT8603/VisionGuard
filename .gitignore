@@ -23,8 +23,8 @@ logs/
 *.onnx
 *.engine
 *.npz
-!models/**/.gitkeep
-!models/README.md
+!computer_vision/Model/**/.gitkeep
+!computer_vision/Model/README.md
 
 # Sample media
 data/
