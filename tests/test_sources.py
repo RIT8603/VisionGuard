@@ -10,19 +10,19 @@ import cv2
 import numpy as np
 import pytest
 
-from app.core.config import CaptureBackend, VideoConfig, VideoSourceType, build_config
-from app.sources import opencv_base
-from app.sources.base import (
+from computer_vision.core.config import CaptureBackend, VideoConfig, VideoSourceType, build_config
+from computer_vision.sources import opencv_base
+from computer_vision.sources.base import (
     BaseVideoSource,
     FramePacket,
     FrameReadError,
     SourceNotOpenError,
     SourceOpenError,
 )
-from app.sources.factory import available_source_types, create_video_source
-from app.sources.rtsp import RTSPSource
-from app.sources.video_file import VideoFileSource
-from app.sources.webcam import WebcamSource
+from computer_vision.sources.factory import available_source_types, create_video_source
+from computer_vision.sources.rtsp import RTSPSource
+from computer_vision.sources.video_file import VideoFileSource
+from computer_vision.sources.webcam import WebcamSource
 
 
 class FakeCapture:
@@ -223,15 +223,15 @@ class TestWebcamSource:
 class TestBackendSelection:
     def test_windows_defaults_to_msmf(self, monkeypatch):
         """Measured: MSMF sustains the camera's rated fps where DSHOW caps out."""
-        monkeypatch.setattr("app.sources.webcam.sys.platform", "win32")
+        monkeypatch.setattr("computer_vision.sources.webcam.sys.platform", "win32")
         assert WebcamSource(webcam_config())._resolve_backend() is CaptureBackend.MSMF
 
     def test_linux_defaults_to_v4l2(self, monkeypatch):
-        monkeypatch.setattr("app.sources.webcam.sys.platform", "linux")
+        monkeypatch.setattr("computer_vision.sources.webcam.sys.platform", "linux")
         assert WebcamSource(webcam_config())._resolve_backend() is CaptureBackend.V4L2
 
     def test_explicit_backend_wins(self, monkeypatch):
-        monkeypatch.setattr("app.sources.webcam.sys.platform", "win32")
+        monkeypatch.setattr("computer_vision.sources.webcam.sys.platform", "win32")
         source = WebcamSource(webcam_config(backend="dshow"))
         assert source._resolve_backend() is CaptureBackend.DSHOW
 
@@ -250,7 +250,7 @@ class TestPixelFormat:
         source.release()
 
     def test_fourcc_must_be_four_characters(self):
-        from app.core.config import ConfigError
+        from computer_vision.core.config import ConfigError
 
         with pytest.raises(ConfigError, match="exactly 4 characters"):
             build_config({"video": {"fourcc": "MJP"}})

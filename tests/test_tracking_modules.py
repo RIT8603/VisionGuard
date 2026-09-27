@@ -9,15 +9,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.core.config import build_config
-from app.core.context import BBox, Detection, FrameContext
-from app.models.base import RawDetection
-from app.modules.base import ModuleType
-from app.modules.registry import ModuleDependencyError, ModuleRegistry
-from app.modules.tracking.base import BaseTrackingModule
-from app.modules.tracking.object import ObjectTrackingModule
-from app.modules.tracking.person import PersonTrackingModule
-from app.modules.tracking.vehicle import VehicleTrackingModule
+from computer_vision.core.config import build_config
+from computer_vision.core.context import BBox, Detection, FrameContext
+from computer_vision.inference.base import RawDetection
+from computer_vision.modules.base import ModuleType
+from computer_vision.modules.registry import ModuleDependencyError, ModuleRegistry
+from computer_vision.modules.tracking.base import BaseTrackingModule
+from computer_vision.modules.tracking.object import ObjectTrackingModule
+from computer_vision.modules.tracking.person import PersonTrackingModule
+from computer_vision.modules.tracking.vehicle import VehicleTrackingModule
 from tests.conftest import FakeDetectorBackend
 
 TRACKING_MODULES = [PersonTrackingModule, ObjectTrackingModule, VehicleTrackingModule]
@@ -294,8 +294,8 @@ class TestRegistryWiring:
 class TestFullPipeline:
     def test_two_trackers_keep_separate_id_spaces(self):
         """person #1 and vehicle #1 are different things, and that is fine."""
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
         from tests.test_pipeline import RecordingSink, SyntheticSource
 
         FakeDetectorBackend.scripted = [
@@ -359,7 +359,7 @@ class TestFullPipeline:
 
     def test_tracked_boxes_are_not_drawn_twice(self):
         """Each tracker marks its detector consumed, so no duplicate boxes."""
-        from app.core.output import _untracked_detections
+        from computer_vision.core.output import untracked_detections
 
         FakeDetectorBackend.scripted = [
             RawDetection(label="car", confidence=0.9, xyxy=(300, 100, 500, 300), class_id=2),
@@ -383,4 +383,4 @@ class TestFullPipeline:
             module.safe_process(ctx)
 
         assert len(ctx.get_tracks("vehicle_tracking")) == 1
-        assert _untracked_detections(ctx) == []
+        assert untracked_detections(ctx) == []

@@ -6,7 +6,7 @@ import textwrap
 
 import pytest
 
-from app.core.config import (
+from computer_vision.core.config import (
     ConfigError,
     VideoSourceType,
     VisionGuardConfig,
@@ -166,7 +166,7 @@ def test_shipped_config_only_enables_implemented_modules():
     Every module enabled in configs/config.yaml must be resolvable by the
     registry, so cloning the repo and running it works without edits.
     """
-    from app.modules.registry import ModuleRegistry
+    from computer_vision.modules.registry import ModuleRegistry
 
     config = load_config("configs/config.yaml", use_env=False)
     unknown = [

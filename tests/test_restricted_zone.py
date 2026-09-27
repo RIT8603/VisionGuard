@@ -9,10 +9,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.core.config import build_config
-from app.core.context import BBox, Event, FrameContext, Severity, Track
-from app.models.base import RawDetection
-from app.modules.analysis.geometry import (
+from computer_vision.core.config import build_config
+from computer_vision.core.context import BBox, Event, FrameContext, Severity, Track
+from computer_vision.inference.base import RawDetection
+from computer_vision.modules.analysis.geometry import (
     Occupancy,
     ReferencePoint,
     Zone,
@@ -21,14 +21,14 @@ from app.modules.analysis.geometry import (
     parse_zones,
     reference_point,
 )
-from app.modules.analysis.zone import (
+from computer_vision.modules.analysis.zone import (
     EVENT_DWELL,
     EVENT_ENTRY,
     EVENT_EXIT,
     RestrictedZoneModule,
 )
-from app.modules.base import ModuleInitializationError, ModuleType
-from app.modules.registry import ModuleDependencyError, ModuleRegistry
+from computer_vision.modules.base import ModuleInitializationError, ModuleType
+from computer_vision.modules.registry import ModuleDependencyError, ModuleRegistry
 from tests.conftest import FakeDetectorBackend
 
 #: Right-hand half of the frame.
@@ -534,8 +534,8 @@ class TestRegistryWiring:
 class TestFullPipeline:
     def test_detection_to_tracking_to_event(self):
         """The whole chain: pixels in, a zone event out."""
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
         from tests.test_pipeline import RecordingSink, SyntheticSource
 
         # A person standing in the right-hand half of a 640x480 frame.

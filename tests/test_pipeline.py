@@ -13,15 +13,15 @@ from typing import List, Optional
 import numpy as np
 import pytest
 
-from app.core.config import build_config
-from app.core.context import BBox, Detection, FrameContext
-from app.core.frame_processor import FrameProcessor
-from app.core.output import BaseOutputSink, NullSink
-from app.core.pipeline import RunLimits, VisionPipeline
-from app.modules.base import BaseAIModule, ModuleResult, ModuleStatus, ModuleType
-from app.modules.registry import ModuleRegistry
-from app.sources.base import BaseVideoSource, FramePacket, SourceInfo
-from app.utils.timing import PipelineStats
+from computer_vision.core.config import build_config
+from computer_vision.core.context import BBox, Detection, FrameContext
+from computer_vision.core.frame_processor import FrameProcessor
+from computer_vision.core.output import BaseOutputSink, NullSink
+from computer_vision.core.pipeline import RunLimits, VisionPipeline
+from computer_vision.modules.base import BaseAIModule, ModuleResult, ModuleStatus, ModuleType
+from computer_vision.modules.registry import ModuleRegistry
+from computer_vision.sources.base import BaseVideoSource, FramePacket, SourceInfo
+from computer_vision.utils.timing import PipelineStats
 from tests.conftest import make_module
 
 

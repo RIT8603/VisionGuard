@@ -12,16 +12,17 @@ import time
 import numpy as np
 import pytest
 
-from app.core.config import ConfigError, build_config
-from app.core.context import BBox, Detection, Event, FrameContext, Severity
-from app.core.output import MultiSink, NullSink, WebSink
-from app.dashboard.state import DashboardState
-from app.utils.timing import PipelineStats
+from computer_vision.core.config import ConfigError, build_config
+from computer_vision.core.context import BBox, Detection, Event, FrameContext, Severity
+from backend.services.web_sink import WebSink
+from computer_vision.core.output import MultiSink, NullSink
+from backend.services.state import DashboardState
+from computer_vision.utils.timing import PipelineStats
 
 fastapi = pytest.importorskip("fastapi", reason="dashboard extras not installed")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.dashboard.server import build_app  # noqa: E402
+from backend.api.server import build_app  # noqa: E402
 
 
 def frame_ctx(frame_id: int = 1, events=()) -> FrameContext:
@@ -93,7 +94,7 @@ class TestDashboardConfig:
         monkeypatch.setenv("DASHBOARD", "true")
         monkeypatch.setenv("DASHBOARD_PORT", "9999")
         config = build_config({})
-        from app.core.config import apply_env_overrides, build_config as bc
+        from computer_vision.core.config import apply_env_overrides, build_config as bc
 
         config = bc(apply_env_overrides({}))
         assert config.dashboard.enabled is True

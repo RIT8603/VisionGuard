@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.config import build_config
-from app.modules.base import ModuleInitializationError, ModuleStatus, ModuleType
-from app.modules.registry import (
+from computer_vision.core.config import build_config
+from computer_vision.modules.base import ModuleInitializationError, ModuleStatus, ModuleType
+from computer_vision.modules.registry import (
     ModuleDependencyError,
     ModuleNotRegisteredError,
     ModuleRegistry,
@@ -186,11 +186,11 @@ class TestLazyDeclaration:
         assert resolved.module_name == "lazy_module"
 
     def test_bad_import_path_is_reported(self):
-        ModuleRegistry.declare("broken", "app.modules.nope:Missing")
+        ModuleRegistry.declare("broken", "computer_vision.modules.nope:Missing")
         with pytest.raises(ModuleNotRegisteredError, match="Could not load AI module"):
             ModuleRegistry.resolve("broken")
 
     def test_malformed_import_path_is_reported(self):
-        ModuleRegistry.declare("broken", "app.modules.base")
+        ModuleRegistry.declare("broken", "computer_vision.modules.base")
         with pytest.raises(ModuleNotRegisteredError, match="Malformed import path"):
             ModuleRegistry.resolve("broken")

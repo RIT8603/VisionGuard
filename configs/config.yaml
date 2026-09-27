@@ -2,7 +2,7 @@
 # VisionGuard AI — configuration
 # =============================================================================
 # Everything the platform does is decided here. Environment variables and CLI
-# flags override these values (see .env.example and `python -m app.main --help`).
+# flags override these values (see .env.example and `python -m backend.main --help`).
 # =============================================================================
 
 app:
@@ -112,8 +112,8 @@ modules:
   # ---- Detection ----
   person_detection:
     enabled: true          # Phase 2
-    backend: ultralytics   # see app/models/factory.py for available backends
-    model: yolo11n.pt      # downloaded once on first run
+    backend: ultralytics   # see computer_vision/inference/factory.py for available backends
+    model: models/detection/yolo11n.pt      # downloaded once on first run
     device: cpu            # cpu | cuda | 0 | 0,1 ...
     imgsz: 640             # inference resolution; lower is faster
     confidence_threshold: 0.4
@@ -125,13 +125,13 @@ modules:
   # Set `share_model: false` on a module to opt it out.
   object_detection:
     enabled: false
-    model: yolo11n.pt
+    model: models/detection/yolo11n.pt
     confidence_threshold: 0.4
     labels: []             # empty = every class the model knows (80 for COCO)
 
   vehicle_detection:
     enabled: false
-    model: yolo11n.pt
+    model: models/detection/yolo11n.pt
     confidence_threshold: 0.4
     labels: [car, truck, bus, motorcycle, bicycle]
 
@@ -147,19 +147,19 @@ modules:
   # Set `labels` to match your model's own class names.
   ppe_detection:
     enabled: false
-    # model: models/ppe.pt
+    # model: models/custom/ppe.pt
     # labels: [helmet, vest, gloves, boots]
     confidence_threshold: 0.5
 
   fire_detection:
     enabled: false
-    # model: models/fire.pt
+    # model: models/custom/fire.pt
     # labels: [fire]
     confidence_threshold: 0.6
 
   smoke_detection:
     enabled: false
-    # model: models/smoke.pt
+    # model: models/custom/smoke.pt
     # labels: [smoke]
     confidence_threshold: 0.6
 
@@ -175,15 +175,15 @@ modules:
   face_detection:
     enabled: false
     backend: yunet
-    # model: models/face_detection_yunet_2023mar.onnx
+    # model: models/face/face_detection_yunet_2023mar.onnx
     confidence_threshold: 0.6
     min_face_size: 24      # ignore faces smaller than this many pixels
 
   face_recognition:
     enabled: false         # requires face_detection
     backend: sface
-    # model: models/face_recognition_sface_2021dec.onnx
-    # identity_store: models/identities.npz
+    # model: models/face/face_recognition_sface_2021dec.onnx
+    # identity_store: models/face/identities.npz
     threshold: 0.363       # cosine similarity; SFace's documented value
     max_faces: 10
 
@@ -220,7 +220,7 @@ modules:
   pose_detection:
     enabled: false
     backend: ultralytics
-    model: yolo11n-pose.pt   # downloaded on first use
+    model: models/pose/yolo11n-pose.pt   # downloaded on first use
     device: cpu
     imgsz: 640
     confidence_threshold: 0.4

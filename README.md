@@ -17,7 +17,7 @@ Camera Source -> Video Source Abstraction -> OpenCV Vision Core
 
 ## Status: Phase 9 (Pose, Fall, Attendance) — in progress
 
-Development workflow: **[WORKFLOW.md](WORKFLOW.md)**
+Development workflow: **[docs/WORKFLOW.md](docs/WORKFLOW.md)**
 
 **All three video sources and eleven AI modules are implemented**, and the
 platform now produces **events**, not just detections:
@@ -116,7 +116,7 @@ Optional: `cp .env.example .env` and edit it.
 Live webcam preview with the HUD:
 
 ```bash
-.venv/Scripts/python.exe -m app.main
+.venv/Scripts/python.exe -m backend.main
 ```
 
 Press `q` or `ESC` in the window (or close it) to stop.
@@ -124,25 +124,25 @@ Press `q` or `ESC` in the window (or close it) to stop.
 Headless, fixed number of frames — the repeatable smoke test:
 
 ```bash
-.venv/Scripts/python.exe -m app.main --no-window --max-frames 90
+.venv/Scripts/python.exe -m backend.main --no-window --max-frames 90
 ```
 
 Watch it in a browser instead of an OpenCV window:
 
 ```bash
-.venv/Scripts/python.exe -m app.main --no-window --dashboard
+.venv/Scripts/python.exe -m backend.main --no-window --dashboard
 ```
 
 Analyse a video file instead — `--source file` is inferred from the flag:
 
 ```bash
-.venv/Scripts/python.exe -m app.main --video-path data/samples/office.mp4
+.venv/Scripts/python.exe -m backend.main --video-path data/samples/office.mp4
 ```
 
 Show what the platform can currently load:
 
 ```bash
-.venv/Scripts/python.exe -m app.main --list-modules
+.venv/Scripts/python.exe -m backend.main --list-modules
 ```
 
 Useful flags: `--dashboard`, `--dashboard-port`, `--config`, `--source`,
@@ -193,15 +193,15 @@ Headless run with detection + tracking (1280x720 / 30 fps USB webcam, CPU):
 
 ```
 INFO | visionguard              | VisionGuard AI 0.3.0 - Phase 3 - Person Tracking
-INFO | app.modules.registry     | Modules - enabled: ['person_detection', 'person_tracking'] | ...
-INFO | app.modules.registry     | Module execution order: person_detection -> person_tracking
-INFO | app.models.ultralytics.. | Loaded yolo11n.pt on device 'cpu' (imgsz=640, 80 classes)
-INFO | app.models.ultralytics.. | Model warmup took 1893 ms
+INFO | computer_vision.modules.registry     | Modules - enabled: ['person_detection', 'person_tracking'] | ...
+INFO | computer_vision.modules.registry     | Module execution order: person_detection -> person_tracking
+INFO | computer_vision.inference.ultralytics.. | Loaded yolo11n.pt on device 'cpu' (imgsz=640, 80 classes)
+INFO | computer_vision.inference.ultralytics.. | Model warmup took 1893 ms
 INFO | module.person_detection  | Ready: backend=ultralytics:yolo11n.pt@cpu, label='person', confidence>=0.40
 INFO | module.person_tracking   | Ready: consuming 'person_detection' (iou>=0.30, max_age=30, min_hits=2)
-INFO | app.sources.opencv_base  | Source ready in 6121 ms: webcam-0 @ 1280x720, 30.0 fps
-INFO | app.core.frame_processor | Processing resolution: 1280x720 -> 960x540
-INFO | app.core.output          | frame=60 fps=19.7 latency=39.7ms detections=0 tracks=0
+INFO | computer_vision.sources.opencv_base  | Source ready in 6121 ms: webcam-0 @ 1280x720, 30.0 fps
+INFO | computer_vision.core.frame_processor | Processing resolution: 1280x720 -> 960x540
+INFO | computer_vision.core.output          | frame=60 fps=19.7 latency=39.7ms detections=0 tracks=0
 INFO | visionguard              | Done: 60 frames in 3.5 s | avg 16.8 FPS | avg processing latency 39.7 ms | avg capture wait 10.9 ms
 ```
 
@@ -239,75 +239,138 @@ this platform targets. Measure on **your** footage before lowering it.
 
 ---
 
-## How the pieces connect
+## Project structure
+
+Three layers, and the dependency arrow only ever points one way:
+
+```
+frontend/  ──uses──▶  backend/  ──uses──▶  computer_vision/
+                                                   │
+                                            reads  ▼
+                                              models/
+```
+
+```
+VisionGuard/
+├── computer_vision/        THE VISION ENGINE - runs with no server, no API, no UI
+│   ├── core/               pipeline, context, config, frame processing, output sinks
+│   ├── sources/            webcam, video file, RTSP  (one interface)
+│   ├── modules/            detection / recognition / tracking / analysis
+│   │   ├── detection/      person, object, vehicle, pose, crowd, PPE, fire, smoke
+│   │   ├── recognition/    face detection, face recognition, unknown person
+│   │   ├── tracking/       person, object, vehicle  +  the IoU algorithm
+│   │   └── analysis/       restricted zone, fall, attendance  (produce events)
+│   ├── inference/          model adapters: Ultralytics, OpenCV face, pose, sharing
+│   ├── identity/           enrolled face embeddings  (personal data)
+│   └── utils/              logging, timing, annotation
+│
+├── backend/                API + ORCHESTRATION - connects the engine to the UI
+│   ├── main.py             CLI entry point
+│   ├── api/server.py       read-only HTTP API + MJPEG stream
+│   └── services/           dashboard state, the sink that feeds it
+│
+├── frontend/               USER INTERFACE
+│   └── static/index.html
+│
+├── models/                 ALL AI MODEL WEIGHTS - nothing else
+│   ├── detection/          yolo11n.pt
+│   ├── pose/               yolo11n-pose.pt
+│   ├── face/               YuNet + SFace .onnx, identities.npz
+│   └── custom/             your own PPE / fire / smoke weights
+│
+├── configs/config.yaml     every behavioural switch
+├── docs/                   the authoritative specification
+├── tests/                  584 unit + 4 integration
+└── tools/                  offline evaluation (recognition accuracy)
+```
+
+**Why these boundaries.** `computer_vision/` must stay runnable with no web
+stack at all — that is what keeps it embeddable and testable. So the sink that
+feeds the dashboard lives in `backend/services/web_sink.py`, not in the engine.
+A lint you can run at any time:
+
+```bash
+grep -rn "from backend" computer_vision/   # must print nothing
+```
+
+> **Naming note.** Python package names cannot contain spaces
+> (`import "Computer Vision"` is a syntax error), so the folders use PEP 8
+> snake_case: `computer_vision`, not `Computer Vision`.
+
+### How a frame flows
 
 ```
 configs/config.yaml ─┐
-.env / environment ──┼─> app/core/config.py ──> VisionGuardConfig
-CLI flags ───────────┘                              │
-                                                    ├─> app/sources/factory.py
-                                                    │      └─> WebcamSource ──┐
-                                                    │          (BaseVideoSource)
-                                                    ├─> app/modules/registry.py │
-                                                    │      └─> enabled modules  │
-                                                    │          in dependency    │
-                                                    │          order            │
-                                                    └─> app/core/pipeline.py <──┘
-                                                             │
-                                          FramePacket ──> FrameProcessor
-                                                             │
-                                                        FrameContext
-                                                             │
-                                             module.safe_process(context) x N
-                                                             │
-                                                    app/core/output.py
-                                                       (WindowSink / NullSink)
+.env / environment ──┼─> core/config.py ──> VisionGuardConfig
+CLI flags ───────────┘                            │
+                                                  ├─> sources/factory.py
+                                                  │      └─> WebcamSource
+                                                  │          (BaseVideoSource)
+                                                  ├─> modules/registry.py
+                                                  │      └─> enabled modules,
+                                                  │          in dependency order
+                                                  └─> core/pipeline.py
+                                                           │
+                                        FramePacket ──> FrameProcessor
+                                                           │
+                                                      FrameContext
+                                                           │
+                                           module.safe_process(context) x N
+                                                           │
+                                     ┌─────────────────────┴──────────────────┐
+                                     ▼                                        ▼
+                          core/output.py                        backend/services/
+                       (WindowSink / NullSink)                    web_sink.py
+                                                                       │
+                                                             backend/api/server.py
+                                                                       │
+                                                              frontend/static/
 ```
 
 | File | Responsibility |
 |---|---|
-| [app/main.py](app/main.py) | Entry point: flags, wiring, exit codes. No vision logic. |
-| [app/core/config.py](app/core/config.py) | The only place that reads YAML or the environment. |
-| [app/core/context.py](app/core/context.py) | `FrameContext`, `BBox`, `Detection`, `Track`, `Event`. The module-to-module channel. |
-| [app/modules/analysis/zone.py](app/modules/analysis/zone.py) | Restricted Zone. Consumes tracks, emits events. |
-| [app/modules/analysis/geometry.py](app/modules/analysis/geometry.py) | Polygons, containment and the entry/exit state machine. |
-| [app/core/pipeline.py](app/core/pipeline.py) | The Vision Core loop. Names no module and no model. |
-| [app/core/frame_processor.py](app/core/frame_processor.py) | Mirror + resize, once, to a single pipeline resolution. |
-| [app/core/output.py](app/core/output.py) | Output sinks: window, headless, web, and `MultiSink`. |
-| [app/dashboard/server.py](app/dashboard/server.py) | Read-only HTTP API and MJPEG stream. |
-| [app/dashboard/state.py](app/dashboard/state.py) | Thread-safe handoff from pipeline to server. |
-| [app/sources/base.py](app/sources/base.py) | The source contract. Imports no OpenCV. |
-| [app/sources/opencv_base.py](app/sources/opencv_base.py) | Shared `cv2.VideoCapture` plumbing. |
-| [app/sources/webcam.py](app/sources/webcam.py) | Live camera. Development input. |
-| [app/sources/video_file.py](app/sources/video_file.py) | Video file. EOF, loop, seek, pacing. Evaluation input. |
-| [app/sources/rtsp.py](app/sources/rtsp.py) | RTSP camera. Reconnect, timeouts, stale-frame dropping, redaction. Production input. |
-| [app/sources/factory.py](app/sources/factory.py) | The only code that maps a config value to a source class. |
-| [app/modules/base.py](app/modules/base.py) | `BaseAIModule`, `ModuleResult`, error containment. |
-| [app/modules/registry.py](app/modules/registry.py) | Catalogue, lazy import, dependency ordering. |
-| [app/modules/detection/base.py](app/modules/detection/base.py) | Shared detector plumbing: run model, filter labels, publish. |
-| [app/modules/detection/person.py](app/modules/detection/person.py) | Person Detection. Finds people; nothing else. |
-| [app/modules/detection/crowd.py](app/modules/detection/crowd.py) | Crowd measurement. Consumes detections, runs no model. |
-| [app/modules/tracking/base.py](app/modules/tracking/base.py) | Shared tracker plumbing: read a detector, associate, publish ids. |
-| [app/modules/tracking/person.py](app/modules/tracking/person.py) | Person Tracking. Assigns ids; runs no detector. |
-| [app/modules/tracking/tracker_core.py](app/modules/tracking/tracker_core.py) | The IoU tracking algorithm. Knows nothing about people or modules. |
-| [app/models/base.py](app/models/base.py) | `DetectorBackend` contract. Modules depend on this, not on a runtime. |
-| [app/models/shared.py](app/models/shared.py) | One load, one inference, many modules. Reference-counted. |
-| [app/identity/store.py](app/identity/store.py) | Enrolled identities. Embeddings only, never images. |
-| [app/models/opencv_face.py](app/models/opencv_face.py) | YuNet detection and SFace embedding. |
-| [app/models/ultralytics_backend.py](app/models/ultralytics_backend.py) | The only file that imports `ultralytics`. |
-| [app/utils/timing.py](app/utils/timing.py) | FPS / latency meters, `PipelineStats`. |
-| [app/utils/annotate.py](app/utils/annotate.py) | Drawing. Separate from both pipeline and modules. |
+| [backend/main.py](backend/main.py) | Entry point: flags, wiring, exit codes. No vision logic. |
+| [computer_vision/core/config.py](computer_vision/core/config.py) | The only place that reads YAML or the environment. |
+| [computer_vision/core/context.py](computer_vision/core/context.py) | `FrameContext`, `BBox`, `Detection`, `Track`, `Event`. The module-to-module channel. |
+| [computer_vision/modules/analysis/zone.py](computer_vision/modules/analysis/zone.py) | Restricted Zone. Consumes tracks, emits events. |
+| [computer_vision/modules/analysis/geometry.py](computer_vision/modules/analysis/geometry.py) | Polygons, containment and the entry/exit state machine. |
+| [computer_vision/core/pipeline.py](computer_vision/core/pipeline.py) | The Vision Core loop. Names no module and no model. |
+| [computer_vision/core/frame_processor.py](computer_vision/core/frame_processor.py) | Mirror + resize, once, to a single pipeline resolution. |
+| [computer_vision/core/output.py](computer_vision/core/output.py) | Output sinks: window, headless, web, and `MultiSink`. |
+| [backend/api/server.py](backend/api/server.py) | Read-only HTTP API and MJPEG stream. |
+| [backend/services/state.py](backend/services/state.py) | Thread-safe handoff from pipeline to server. |
+| [computer_vision/sources/base.py](computer_vision/sources/base.py) | The source contract. Imports no OpenCV. |
+| [computer_vision/sources/opencv_base.py](computer_vision/sources/opencv_base.py) | Shared `cv2.VideoCapture` plumbing. |
+| [computer_vision/sources/webcam.py](computer_vision/sources/webcam.py) | Live camera. Development input. |
+| [computer_vision/sources/video_file.py](computer_vision/sources/video_file.py) | Video file. EOF, loop, seek, pacing. Evaluation input. |
+| [computer_vision/sources/rtsp.py](computer_vision/sources/rtsp.py) | RTSP camera. Reconnect, timeouts, stale-frame dropping, redaction. Production input. |
+| [computer_vision/sources/factory.py](computer_vision/sources/factory.py) | The only code that maps a config value to a source class. |
+| [computer_vision/modules/base.py](computer_vision/modules/base.py) | `BaseAIModule`, `ModuleResult`, error containment. |
+| [computer_vision/modules/registry.py](computer_vision/modules/registry.py) | Catalogue, lazy import, dependency ordering. |
+| [computer_vision/modules/detection/base.py](computer_vision/modules/detection/base.py) | Shared detector plumbing: run model, filter labels, publish. |
+| [computer_vision/modules/detection/person.py](computer_vision/modules/detection/person.py) | Person Detection. Finds people; nothing else. |
+| [computer_vision/modules/detection/crowd.py](computer_vision/modules/detection/crowd.py) | Crowd measurement. Consumes detections, runs no model. |
+| [computer_vision/modules/tracking/base.py](computer_vision/modules/tracking/base.py) | Shared tracker plumbing: read a detector, associate, publish ids. |
+| [computer_vision/modules/tracking/person.py](computer_vision/modules/tracking/person.py) | Person Tracking. Assigns ids; runs no detector. |
+| [computer_vision/modules/tracking/tracker_core.py](computer_vision/modules/tracking/tracker_core.py) | The IoU tracking algorithm. Knows nothing about people or modules. |
+| [computer_vision/inference/base.py](computer_vision/inference/base.py) | `DetectorBackend` contract. Modules depend on this, not on a runtime. |
+| [computer_vision/inference/shared.py](computer_vision/inference/shared.py) | One load, one inference, many modules. Reference-counted. |
+| [computer_vision/identity/store.py](computer_vision/identity/store.py) | Enrolled identities. Embeddings only, never images. |
+| [computer_vision/inference/opencv_face.py](computer_vision/inference/opencv_face.py) | YuNet detection and SFace embedding. |
+| [computer_vision/inference/ultralytics_backend.py](computer_vision/inference/ultralytics_backend.py) | The only file that imports `ultralytics`. |
+| [computer_vision/utils/timing.py](computer_vision/utils/timing.py) | FPS / latency meters, `PipelineStats`. |
+| [computer_vision/utils/annotate.py](computer_vision/utils/annotate.py) | Drawing. Separate from both pipeline and modules. |
 
 ---
 
 ## Architectural guarantees, and where they live
 
 **The pipeline never knows which modules exist.**
-[pipeline.py](app/core/pipeline.py) iterates a list it was handed and calls
+[pipeline.py](computer_vision/core/pipeline.py) iterates a list it was handed and calls
 `safe_process`. Adding fire detection later does not touch this file.
 
 **Disabled modules never load their models.**
-`BUILTIN_MODULES` in [registry.py](app/modules/registry.py) maps a name to an
+`BUILTIN_MODULES` in [registry.py](computer_vision/modules/registry.py) maps a name to an
 import path. `build_enabled` resolves *only* enabled names, so a disabled
 `face_recognition` never imports a face-embedding library, let alone loads one.
 `initialize()` is called only for enabled modules.
@@ -444,7 +507,7 @@ with a silent zero-detections run.
 Enrolment is deliberate. Nothing is ever added by being seen.
 
 ```python
-from app.identity import IdentityStore
+from computer_vision.identity import IdentityStore
 
 store = IdentityStore(threshold=0.363)
 store.enroll("alice", embedding)   # embedding from SFaceEmbedder.embed()
@@ -538,7 +601,7 @@ distinguishable from "almost matched someone".
 ## Dashboard
 
 ```bash
-.venv/Scripts/python.exe -m app.main --no-window --dashboard
+.venv/Scripts/python.exe -m backend.main --no-window --dashboard
 ```
 
 Then open <http://localhost:8080>. Live annotated video, which modules are
@@ -640,7 +703,7 @@ Cost is ~0.04 ms per frame — it is arithmetic, not inference.
 ## Detection modules
 
 Five detectors share one base
-([detection/base.py](app/modules/detection/base.py)): run a model, keep the
+([detection/base.py](computer_vision/modules/detection/base.py)): run a model, keep the
 labels this module owns, publish them under its own name. Each keeps its own
 config block, enable switch and `FrameContext` namespace — sharing plumbing is
 not merging responsibilities.
@@ -719,7 +782,7 @@ RTSP_URL=rtsp://user:password@192.168.1.64:554/Streaming/Channels/101
 ```
 
 ```bash
-.venv/Scripts/python.exe -m app.main --rtsp-url "rtsp://user:pass@192.168.1.64:554/Streaming/Channels/101"
+.venv/Scripts/python.exe -m backend.main --rtsp-url "rtsp://user:pass@192.168.1.64:554/Streaming/Channels/101"
 ```
 
 An RTSP stream fails in ways a webcam and a file never do, so three things are
@@ -817,7 +880,7 @@ person_detection  -> context.detections["person_detection"]
 ```
 
 Three trackers share one base
-([tracking/base.py](app/modules/tracking/base.py)) and one algorithm, differing
+([tracking/base.py](computer_vision/modules/tracking/base.py)) and one algorithm, differing
 only in which detector they consume:
 
 | Tracker | Consumes |
@@ -840,7 +903,7 @@ Vehicles usually want looser association than people — they move further
 between frames — hence the different defaults in `config.yaml`
 (`iou_threshold: 0.25`, `max_age: 45`).
 
-The algorithm ([tracker_core.py](app/modules/tracking/tracker_core.py)) is
+The algorithm ([tracker_core.py](computer_vision/modules/tracking/tracker_core.py)) is
 SORT-style association by intersection-over-union against a linearly predicted
 box — no Kalman filter, no scipy, no appearance model. At video frame rates
 that is enough, it costs ~0.02 ms per frame, and it keeps the dependency
@@ -879,7 +942,7 @@ overriding two class attributes.
 ## Detection backend
 
 `PersonDetectionModule` does not know what a neural network is. It depends on
-[`DetectorBackend`](app/models/base.py) — `load()`, `infer(frame) ->
+[`DetectorBackend`](computer_vision/inference/base.py) — `load()`, `infer(frame) ->
 list[RawDetection]`, `unload()` — and the backend is chosen by config:
 
 ```yaml
@@ -893,9 +956,9 @@ is fine for development and for open-sourced deployments, but it carries
 source-disclosure obligations for a closed-source product. If VisionGuard is
 going to be commercial, plan to swap this backend.
 
-Swapping is cheap by design: add `app/models/onnx_backend.py` implementing
+Swapping is cheap by design: add `computer_vision/inference/onnx_backend.py` implementing
 `DetectorBackend`, register it in
-[app/models/factory.py](app/models/factory.py), and set `backend: onnx`. An
+[computer_vision/inference/factory.py](computer_vision/inference/factory.py), and set `backend: onnx`. An
 ONNX Runtime or OpenCV-DNN backend also removes the torch dependency entirely
 (~1.2 GB). **No AI module, pipeline, source or config-schema change is
 involved** — that is what the abstraction is for.
@@ -908,7 +971,7 @@ involved** — that is what the abstraction is for.
    `module_name`, `module_type`, `version`, `requires`, `initialize()` and
    `process()`.
 2. Add its line to `BUILTIN_MODULES` in
-   [app/modules/registry.py](app/modules/registry.py).
+   [computer_vision/modules/registry.py](computer_vision/modules/registry.py).
 3. Add its config block with `enabled: true` in `configs/config.yaml`.
 
 No change to the pipeline, the sources, the context, the output sinks or
@@ -963,7 +1026,7 @@ video:
 **Low FPS.** Measure the source first:
 
 ```bash
-.venv/Scripts/python.exe -m app.main --no-window --max-frames 60
+.venv/Scripts/python.exe -m backend.main --no-window --max-frames 60
 ```
 
 Compare `avg capture wait` against `avg processing latency`. A high capture
@@ -1017,6 +1080,6 @@ legitimate gaps, or set it to 0 to disable.
 
 ## Project documents
 
-`Agent.md`, `project_spec.md`, `Arectechture.md`, `Module_spec.md` and
-`Roadmap.md` are the authoritative specification. Where code and those
+`Agent.md` plus `docs/PROJECT_SPEC.md`, `docs/ARCHITECTURE.md`,
+`docs/MODULE_SPEC.md` and `docs/ROADMAP.md` are the authoritative specification. Where code and those
 documents disagree, the documents win.

@@ -7,8 +7,8 @@ module's heavy dependencies out of the process.
 
 from __future__ import annotations
 
-from app.core.context import FrameContext
-from app.modules.base import BaseAIModule, ModuleResult, ModuleType
+from computer_vision.core.context import FrameContext
+from computer_vision.modules.base import BaseAIModule, ModuleResult, ModuleType
 
 
 class LazyModule(BaseAIModule):

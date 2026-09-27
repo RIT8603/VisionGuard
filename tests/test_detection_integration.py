@@ -14,8 +14,8 @@ from pathlib import Path
 import cv2
 import pytest
 
-from app.core.context import FrameContext
-from app.modules.detection.person import PersonDetectionModule
+from computer_vision.core.context import FrameContext
+from computer_vision.modules.detection.person import PersonDetectionModule
 
 pytestmark = pytest.mark.integration
 
@@ -32,7 +32,7 @@ def _bundled_asset(name: str) -> Path:
 @pytest.fixture(scope="module")
 def detector():
     module = PersonDetectionModule(
-        {"model": "yolo11n.pt", "device": "cpu", "confidence_threshold": 0.4}
+        {"model": "models/detection/yolo11n.pt", "device": "cpu", "confidence_threshold": 0.4}
     )
     try:
         module.initialize()

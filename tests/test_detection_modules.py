@@ -8,19 +8,19 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from app.core.config import build_config
-from app.core.context import BBox, Detection, FrameContext
-from app.models.base import RawDetection
-from app.modules.base import ModuleInitializationError, ModuleType
-from app.modules.detection.base import COCO_CLASS_IDS, LabelFilteredDetectionModule
-from app.modules.detection.crowd import CrowdDetectionModule
-from app.modules.detection.fire import FireDetectionModule
-from app.modules.detection.object import ObjectDetectionModule
-from app.modules.detection.person import PersonDetectionModule
-from app.modules.detection.ppe import PPEDetectionModule
-from app.modules.detection.smoke import SmokeDetectionModule
-from app.modules.detection.vehicle import VehicleDetectionModule
-from app.modules.registry import ModuleDependencyError, ModuleRegistry
+from computer_vision.core.config import build_config
+from computer_vision.core.context import BBox, Detection, FrameContext
+from computer_vision.inference.base import RawDetection
+from computer_vision.modules.base import ModuleInitializationError, ModuleType
+from computer_vision.modules.detection.base import COCO_CLASS_IDS, LabelFilteredDetectionModule
+from computer_vision.modules.detection.crowd import CrowdDetectionModule
+from computer_vision.modules.detection.fire import FireDetectionModule
+from computer_vision.modules.detection.object import ObjectDetectionModule
+from computer_vision.modules.detection.person import PersonDetectionModule
+from computer_vision.modules.detection.ppe import PPEDetectionModule
+from computer_vision.modules.detection.smoke import SmokeDetectionModule
+from computer_vision.modules.detection.vehicle import VehicleDetectionModule
+from computer_vision.modules.registry import ModuleDependencyError, ModuleRegistry
 from tests.conftest import FakeDetectorBackend, inner_backend
 
 STOCK_MODULES = [ObjectDetectionModule, VehicleDetectionModule, PersonDetectionModule]
@@ -437,8 +437,8 @@ class TestSharedBase:
 class TestCombinedPipeline:
     def test_four_modules_cooperate_on_one_frame(self):
         """person + vehicle + crowd + tracking, each in its own namespace."""
-        from app.core.frame_processor import FrameProcessor
-        from app.core.pipeline import VisionPipeline
+        from computer_vision.core.frame_processor import FrameProcessor
+        from computer_vision.core.pipeline import VisionPipeline
         from tests.test_pipeline import RecordingSink, SyntheticSource
 
         FakeDetectorBackend.scripted = [
