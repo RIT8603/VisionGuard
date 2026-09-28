@@ -126,6 +126,22 @@ While offline or stopped, the last known values stay on screen, dimmed.
 - The frontend reconnects by giving the `<img>` a new URL (`/stream.mjpg?r=N`)
   when the backend comes back, restarts, or the image reports an error.
 
+## Branding
+
+The mark is an angular eye inside the four corner brackets of a detection box,
+the same brackets the backend draws around what it detects.
+
+- `src/components/Logo.tsx`: `LogoMark` (the symbol) and `Wordmark` (symbol plus
+  the name in Space Grotesk, used in the header). Inline SVG on a 32-unit grid.
+- Colour comes from CSS: the brackets use `currentColor`, the eye uses
+  `--logo-accent` (defaults to `--primary`). Pass `monochrome` for a one-colour
+  version, or set `--logo-accent` on a parent to recolour the eye.
+- `public/favicon.svg`: the same paths with fixed colours on a dark tile, so it
+  reads on light and dark browser tabs. Update it when the paths in `Logo.tsx`
+  change.
+- No PNG icons yet, so iOS home-screen icons and older browsers fall back to
+  their defaults.
+
 ## Known limitations
 
 These come from the current backend, which is treated as stable for this
