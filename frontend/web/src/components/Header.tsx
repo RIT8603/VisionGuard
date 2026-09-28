@@ -1,6 +1,7 @@
 import type { RunInfo } from '../api/types';
 import { DASH, fmtDuration } from '../lib/format';
 import type { ViewState } from '../state/viewState';
+import { Wordmark } from './Logo';
 import { StateBadge } from './StateBadge';
 
 interface HeaderProps {
@@ -20,8 +21,9 @@ export function Header({ info, viewState, uptimeSec }: HeaderProps) {
   return (
     <header className="topbar">
       <div className="brand">
-        <span className="brand-mark" aria-hidden="true" />
-        <h1>VisionGuard</h1>
+        <h1>
+          <Wordmark />
+        </h1>
         <span className="brand-sub">Ops</span>
       </div>
       <StateBadge state={viewState} size="lg" />

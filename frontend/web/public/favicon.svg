@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- VisionGuard favicon. Same geometry as src/components/Logo.tsx; keep in sync.
+       Dark tile so the mark reads on both light and dark browser tabs. -->
+  <rect width="32" height="32" fill="#0a0b0d"/>
+  <path fill="#eceef1" d="M2 2h10v4H6v6H2z M30 2H20v4h6v6h4z M30 30H20v-4h6v-6h4z M2 30h10v-4H6v-6H2z"/>
+  <path fill="#38bdd0" fill-rule="evenodd" d="M7 16l5-5h8l5 5-5 5h-8z M13 13h6v6h-6z"/>
+</svg>
