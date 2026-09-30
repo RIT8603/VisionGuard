@@ -1,6 +1,6 @@
-import type { Detection, FrameSummary, Track } from '../api/types';
-import { fmtBox, fmtPercent } from '../lib/format';
-import { Panel } from './Panel';
+import type { Detection, FrameSummary, Track } from '../../api/types';
+import { fmtBox, fmtPercent } from '../../lib/format';
+import { Panel } from '../ui/Panel';
 
 /** A crowd should not turn the panel into a wall of rows. */
 const MAX_ROWS = 12;

@@ -1,4 +1,4 @@
-import { VIEW_STATE_LABEL, type ViewState } from '../state/viewState';
+import { VIEW_STATE_LABEL, type ViewState } from '../../state/viewState';
 
 /** Single words, so the state reads at a glance. */
 const SHORT_LABEL: Record<ViewState, string> = {

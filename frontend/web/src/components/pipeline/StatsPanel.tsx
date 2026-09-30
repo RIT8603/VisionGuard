@@ -1,6 +1,6 @@
-import type { PipelineStats } from '../api/types';
-import { DASH, fmtNumber } from '../lib/format';
-import { Panel } from './Panel';
+import type { PipelineStats } from '../../api/types';
+import { DASH, fmtNumber } from '../../lib/format';
+import { Panel } from '../ui/Panel';
 
 interface StatsPanelProps {
   stats: PipelineStats | null;

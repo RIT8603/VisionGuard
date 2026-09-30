@@ -1,7 +1,7 @@
-import type { ApiError } from '../api/client';
-import type { FeedEvent, Severity } from '../api/types';
-import { describeData, describeSubject, fmtTime, severityOf } from '../lib/format';
-import { Panel } from './Panel';
+import type { ApiError } from '../../api/client';
+import type { FeedEvent, Severity } from '../../api/types';
+import { describeData, describeSubject, fmtTime, severityOf } from '../../lib/format';
+import { Panel } from '../ui/Panel';
 
 interface EventFeedProps {
   events: FeedEvent[];

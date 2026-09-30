@@ -1,16 +1,16 @@
-import type { RunInfo } from '../api/types';
-import { DASH, fmtDuration } from '../lib/format';
-import type { ViewState } from '../state/viewState';
-import { Wordmark } from './Logo';
-import { StateBadge } from './StateBadge';
+import type { RunInfo } from '../../api/types';
+import { DASH, fmtDuration } from '../../lib/format';
+import type { ViewState } from '../../state/viewState';
+import { Wordmark } from '../brand/Logo';
+import { StateBadge } from '../pipeline/StateBadge';
 
-interface HeaderProps {
+interface PortalHeaderProps {
   info: RunInfo | undefined;
   viewState: ViewState;
   uptimeSec: number | undefined;
 }
 
-export function Header({ info, viewState, uptimeSec }: HeaderProps) {
+export function PortalHeader({ info, viewState, uptimeSec }: PortalHeaderProps) {
   const readouts: [label: string, value: string][] = [
     ['Source', info?.source_id ?? DASH],
     ['Type', info?.source_type ?? DASH],
