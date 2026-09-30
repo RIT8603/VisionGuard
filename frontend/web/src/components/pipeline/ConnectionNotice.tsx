@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import type { PipelineStatus } from '../hooks/usePipelineStatus';
-import { fmtDuration } from '../lib/format';
+import type { PipelineStatus } from '../../hooks/usePipelineStatus';
+import { fmtDuration } from '../../lib/format';
 
 function Notice({ tone, word, children }: { tone: 'warn' | 'crit'; word: string; children: ReactNode }) {
   return (
