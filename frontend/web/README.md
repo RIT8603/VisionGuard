@@ -46,6 +46,7 @@ dashboard at <http://localhost:5173/portal/dashboard>.
 | `/contact` | Public | Contact |
 | `/portal` | Portal | Redirects to `/portal/dashboard` |
 | `/portal/dashboard` | Portal | Live monitoring dashboard |
+| `/portal/modules` | Portal | Module selection (review and select capabilities; not saved) |
 | anything else | Public | Branded 404 (keeps the URL that was typed) |
 
 All paths are defined once in [`src/app/paths.ts`](src/app/paths.ts); link with
@@ -68,12 +69,15 @@ src/
     PortalLayout.tsx       PipelineProvider + portal header + tabs + notice + page
   pages/
     public/                LandingPage, AboutPage, ContactPage
-    portal/                DashboardPage
+    portal/                DashboardPage, ModulesPage
     NotFoundPage.tsx
+  content/
+    moduleCatalog.ts       customer-facing module list with status and backend keys
   components/
     ui/                    generic: Panel, ExternalLink
     brand/                 Logo (LogoMark, Wordmark)
     layout/                PublicNavbar, Footer, PortalHeader, PortalNav
+    modules/               ModuleCard, SelectionSummary
     pipeline/              dashboard panels: LiveStream, StatsPanel, StatusPanel,
                            ModulesPanel, FrameResults, EventFeed,
                            ConnectionNotice, StateBadge
@@ -228,6 +232,28 @@ While offline or stopped, the last known values stay on screen, dimmed.
 - The frontend reconnects by giving the `<img>` a new URL (`/stream.mjpg?r=N`)
   when the backend comes back, restarts, or the image reports an error.
 
+## Module selection
+
+`/portal/modules` lists every capability from
+[`src/content/moduleCatalog.ts`](src/content/moduleCatalog.ts), grouped by category,
+each with one status:
+
+| Status | Meaning |
+|---|---|
+| Available | Works with the models the project uses out of the box |
+| Requires setup | Code exists, but needs model files or an identity store first |
+| Planned | Nothing to enable yet; labelled "on the development roadmap" or "product vision, not yet scheduled" |
+
+A "Running now" tag appears when every backend module a capability needs is
+listed in the connected pipeline's `info.modules`.
+
+**Selection is UI-only.** The backend has no endpoint to enable modules, so the
+selection lives in component state: not saved, not sent, gone on reload. The
+summary panel turns it into the `modules:` block for `configs/config.yaml`
+(dependencies included), which is how modules are enabled today. When a
+backend activation endpoint exists, replace that panel's output with a call to
+it. Update `moduleCatalog.ts` whenever a module's backend status changes.
+
 ## Public site content
 
 The pages describe only what the backend supports today, using the repository
@@ -265,12 +291,13 @@ the same brackets the backend draws around what it detects.
 | Implemented | Planned (not started) |
 |---|---|
 | Public Landing, About, Contact, 404 | Auth pages: login, register, password reset |
-| Portal layout with header, tabs and connection notice | Portal pages: Live Monitoring, Cameras, Events & Alerts, Modules, Zones, Employees, Reports, Notifications, Profile, Settings |
+| Portal layout with header, tabs and connection notice | Portal pages: Live Monitoring, Cameras, Events & Alerts, Zones, Employees, Reports, Notifications, Profile, Settings |
+| Module selection page (review, select, config snippet; not saved) | Saving or applying module selections (needs a backend endpoint) |
 | Live dashboard: MJPEG video, telemetry, current frame, source, modules, event log | Anything needing new backend endpoints (authentication, camera or zone management, configuration, reports) |
 | Shared polling via `PipelineProvider` | |
 | Connection states, restart detection, tab-visibility pausing | |
 
-Live Monitoring, Events & Alerts and Modules can be built from data the backend
+Live Monitoring and Events & Alerts can be built from data the backend
 already exposes. The other portal pages need backend support that does not
 exist yet; build them as clearly labelled placeholders rather than with invented
 data.

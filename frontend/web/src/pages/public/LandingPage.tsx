@@ -61,6 +61,26 @@ const CAPABILITIES: Capability[] = [
   },
 ];
 
+/** Before/after pairs. "After" lines describe only what works today. */
+const SHIFT = [
+  {
+    before: 'Records footage for someone to review later',
+    after: 'Analyses every frame as it arrives',
+  },
+  {
+    before: 'Sees pixels',
+    after: 'Recognises people, vehicles and objects, and follows them across frames',
+  },
+  {
+    before: 'Needs a person watching to notice anything',
+    after: 'Raises events: zone entries, dwell time, possible falls',
+  },
+  {
+    before: 'Smarter coverage usually means new hardware',
+    after: 'Works with the RTSP cameras already installed',
+  },
+];
+
 const STEPS = [
   { title: 'Connect a source', body: 'Point VisionGuard at a webcam, a recording or an RTSP camera.' },
   { title: 'Choose modules', body: 'Enable only the analysis you need. Disabled modules never load a model.' },
@@ -87,23 +107,25 @@ const ROADMAP = [
 export function LandingPage() {
   return (
     <>
-      <title>VisionGuard — Real-time computer vision monitoring</title>
+      <title>VisionGuard — Give your existing CCTV cameras a brain</title>
 
       <section className="site-hero">
         <div className="site-container site-hero-inner">
           <div className="site-hero-copy">
-            <p className="site-kicker">Modular computer vision</p>
-            <h1>Turn camera feeds into real-time, structured awareness.</h1>
+            <p className="site-kicker">AI for existing CCTV</p>
+            <h1>VisionGuard gives existing CCTV cameras a brain.</h1>
             <p className="site-lead">
-              VisionGuard runs the AI modules you choose on live video and turns what it sees into
-              detections, tracks and events you can act on.
+              Most cameras only record, and someone reviews the footage after the fact. VisionGuard adds
+              intelligence on top of the cameras you already have, so they understand the scene,
+              analyse what is happening in real time and raise events the moment something needs
+              attention.
             </p>
             <div className="site-actions">
               <Link to={PATHS.portal.dashboard} className="site-btn site-btn-primary">
                 Open live dashboard
               </Link>
-              <Link to={PATHS.about} className="site-btn">
-                How it works
+              <Link to={PATHS.portal.modules} className="site-btn">
+                Explore modules
               </Link>
             </div>
           </div>
@@ -147,6 +169,35 @@ export function LandingPage() {
           </div>
         </div>
       </div>
+
+      <section className="site-section" aria-labelledby="shift-heading">
+        <div className="site-container">
+          <p className="site-kicker">From recording to understanding</p>
+          <h2 id="shift-heading">Keep your cameras. Add the intelligence.</h2>
+          <div className="site-compare">
+            <div className="site-compare-col">
+              <h3>Passive CCTV</h3>
+              <ul className="site-list">
+                {SHIFT.map((row) => (
+                  <li key={row.before}>{row.before}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="site-compare-col site-compare-after">
+              <h3>With VisionGuard</h3>
+              <ul className="site-list">
+                {SHIFT.map((row) => (
+                  <li key={row.after}>{row.after}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <p className="site-section-note">
+            Connects to IP cameras and recorders that provide an RTSP stream. Automatic alerts and
+            actions beyond the dashboard are on the roadmap.
+          </p>
+        </div>
+      </section>
 
       <section className="site-section" aria-labelledby="works-heading">
         <div className="site-container">
