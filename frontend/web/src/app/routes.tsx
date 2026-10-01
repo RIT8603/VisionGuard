@@ -3,6 +3,7 @@ import { PortalLayout } from '../layouts/PortalLayout';
 import { PublicLayout } from '../layouts/PublicLayout';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { DashboardPage } from '../pages/portal/DashboardPage';
+import { ModulesPage } from '../pages/portal/ModulesPage';
 import { AboutPage } from '../pages/public/AboutPage';
 import { ContactPage } from '../pages/public/ContactPage';
 import { LandingPage } from '../pages/public/LandingPage';
@@ -27,6 +28,7 @@ export function AppRoutes() {
       <Route path={PATHS.portal.root} element={<PortalLayout />}>
         <Route index element={<Navigate to={PATHS.portal.dashboard} replace />} />
         <Route path={PATHS.portal.dashboard} element={<DashboardPage />} />
+        <Route path={PATHS.portal.modules} element={<ModulesPage />} />
       </Route>
       {/* No portal catch-all: unknown /portal/* URLs fall through to the public
           404 above, which keeps the URL the visitor actually typed. */}

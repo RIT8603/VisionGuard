@@ -9,5 +9,6 @@ export const PATHS = {
   portal: {
     root: '/portal',
     dashboard: '/portal/dashboard',
+    modules: '/portal/modules',
   },
 } as const;

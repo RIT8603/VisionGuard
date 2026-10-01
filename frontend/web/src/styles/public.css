@@ -388,6 +388,67 @@
   border-style: dashed;
 }
 
+/* ---------- before / after comparison ---------- */
+
+.site-compare {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  border: var(--border);
+}
+
+@media (min-width: 720px) {
+  .site-compare {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .site-compare-after {
+    border-left: var(--border);
+  }
+}
+
+.site-compare-col {
+  padding: 20px;
+}
+
+.site-compare-col h3 {
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.site-compare-after {
+  background: var(--panel);
+}
+
+.site-compare-after h3 {
+  color: var(--primary);
+}
+
+@media (max-width: 719px) {
+  .site-compare-after {
+    border-top: var(--border);
+  }
+}
+
+.site-compare-col .site-list li::before {
+  background: var(--dim);
+}
+
+.site-compare-after .site-list li {
+  color: var(--text);
+}
+
+.site-compare-after .site-list li::before {
+  background: var(--primary);
+}
+
+.site-section-note {
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 /* ---------- how it works ---------- */
 
 .site-steps {

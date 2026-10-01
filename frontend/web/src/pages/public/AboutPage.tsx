@@ -3,6 +3,25 @@ import { PATHS } from '../../app/paths';
 import { SITE } from '../../app/site';
 import { ExternalLink } from '../../components/ui/ExternalLink';
 
+const WHY = [
+  {
+    title: 'Existing cameras stay useful',
+    body: 'VisionGuard reads the RTSP stream that IP cameras and recorders already provide. The investment in cameras is kept; the software around them gets smarter.',
+  },
+  {
+    title: 'From recording to understanding',
+    body: 'Instead of footage waiting to be reviewed, every frame is analysed as it arrives: who and what is in view, where they move, and what happened.',
+  },
+  {
+    title: 'Real-time decision support',
+    body: 'Events such as a zone breach or a possible fall appear as they happen, so people can respond while it still matters. Automatic alerts and actions are planned next.',
+  },
+  {
+    title: 'Only what you need',
+    body: 'Each capability is a module a business chooses. A warehouse and a campus can run the same platform with different intelligence switched on.',
+  },
+];
+
 const PRINCIPLES = [
   {
     title: 'Modular by configuration',
@@ -46,12 +65,27 @@ export function AboutPage() {
       <section className="site-page-head">
         <div className="site-container">
           <p className="site-kicker">About</p>
-          <h1>A modular vision platform, built one capability at a time.</h1>
+          <h1>Giving existing CCTV cameras a brain.</h1>
           <p className="site-lead">
-            VisionGuard takes video from a camera, processes it through an OpenCV-based vision core,
-            runs only the AI modules a deployment needs, and publishes what they find as structured
-            results.
+            Many organisations already have CCTV cameras that mostly just record. VisionGuard turns
+            those passive systems into active ones: it understands what the cameras see, analyses it
+            in real time and surfaces what matters, without replacing the cameras themselves.
           </p>
+        </div>
+      </section>
+
+      <section className="site-section" aria-labelledby="why-heading">
+        <div className="site-container">
+          <p className="site-kicker">Why</p>
+          <h2 id="why-heading">Intelligence on top, not a rip-and-replace</h2>
+          <ul className="site-grid">
+            {WHY.map((item) => (
+              <li key={item.title} className="site-card">
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 
@@ -59,7 +93,7 @@ export function AboutPage() {
         <div className="site-container site-split">
           <div>
             <p className="site-kicker">Architecture</p>
-            <h2 id="arch-heading">One pipeline, many modules</h2>
+            <h2 id="arch-heading">How the intelligence is added</h2>
             <p>
               Every frame becomes a shared context. Modules run in dependency order and communicate
               only through that context: a detector writes detections, a tracker reads them and
