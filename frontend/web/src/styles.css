@@ -219,10 +219,38 @@ code {
   border-right: var(--border);
 }
 
-.brand-mark {
-  width: 14px;
-  height: 14px;
-  background: var(--primary);
+/* ---------- logo (see components/Logo.tsx) ---------- */
+
+.logo-mark {
+  --logo-accent: var(--primary);
+  display: block;
+  flex: none;
+}
+
+.logo-frame {
+  fill: currentColor;
+}
+
+.logo-eye {
+  fill: var(--logo-accent);
+}
+
+.logo-mark-mono {
+  --logo-accent: currentColor;
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wordmark-text {
+  line-height: 1;
+}
+
+.wordmark-light {
+  font-weight: 500;
 }
 
 .brand h1 {
@@ -231,6 +259,11 @@ code {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.brand .logo-mark {
+  width: 28px;
+  height: 28px;
 }
 
 .brand-sub {
@@ -890,5 +923,21 @@ code {
 
   .notice {
     flex-direction: column;
+  }
+}
+
+/* Narrow phones: smaller mark, drop the Ops tag so the name never wraps. */
+@media (max-width: 399px) {
+  .brand .logo-mark {
+    width: 24px;
+    height: 24px;
+  }
+
+  .brand h1 {
+    font-size: 16px;
+  }
+
+  .brand-sub {
+    display: none;
   }
 }
