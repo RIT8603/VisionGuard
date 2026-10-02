@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { streamUrl } from '../api/endpoints';
-import { STREAM_RETRY_MS } from '../config';
-import { DASH } from '../lib/format';
-import { isReachable, type ViewState } from '../state/viewState';
+import { streamUrl } from '../../api/endpoints';
+import { STREAM_RETRY_MS } from '../../config';
+import { DASH } from '../../lib/format';
+import { isReachable, type ViewState } from '../../state/viewState';
 import { StateBadge } from './StateBadge';
 
 interface LiveStreamProps {

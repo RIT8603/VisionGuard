@@ -1,6 +1,6 @@
-import type { ModuleInfo } from '../api/types';
-import { DASH, fmtNumber } from '../lib/format';
-import { Panel } from './Panel';
+import type { ModuleInfo } from '../../api/types';
+import { DASH, fmtNumber } from '../../lib/format';
+import { Panel } from '../ui/Panel';
 
 interface ModulesPanelProps {
   modules: ModuleInfo[];
