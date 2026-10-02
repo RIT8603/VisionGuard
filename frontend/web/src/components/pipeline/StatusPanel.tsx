@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import type { FrameSummary } from '../api/types';
-import type { PipelineStatus } from '../hooks/usePipelineStatus';
-import { DASH, fmtDuration } from '../lib/format';
-import { Panel } from './Panel';
+import type { FrameSummary } from '../../api/types';
+import type { PipelineStatus } from '../../hooks/usePipelineStatus';
+import { DASH, fmtDuration } from '../../lib/format';
+import { Panel } from '../ui/Panel';
 import { StateBadge } from './StateBadge';
 
 interface StatusPanelProps {

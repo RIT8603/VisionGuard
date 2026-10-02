@@ -1,0 +1,730 @@
+/*
+ * Public site (Landing, About, Contact, 404).
+ *
+ * Reuses the tokens, fonts, badges and notices from index.css. Every class
+ * here starts with `site-`, so nothing in this file can affect the portal.
+ */
+
+.site {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.site-main {
+  flex: 1;
+}
+
+.site-container {
+  width: min(1200px, 100% - 2 * var(--gap));
+  margin-inline: auto;
+}
+
+.site p {
+  max-width: 68ch;
+}
+
+/* ---------- buttons ---------- */
+
+.site-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 18px;
+  border: 2px solid var(--line-strong);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  color: var(--text);
+  background: var(--panel);
+}
+
+.site-btn:hover {
+  border-color: var(--text);
+}
+
+.site-btn-primary {
+  color: var(--on-fill);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.site-btn-primary:hover {
+  background: var(--text);
+  border-color: var(--text);
+}
+
+.site-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+/* ---------- navbar ---------- */
+
+.site-nav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--panel);
+  border-bottom: var(--border);
+}
+
+.site-nav-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px 24px;
+  min-height: 60px;
+}
+
+.site-nav-brand {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.site-nav-brand .wordmark-text {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.site-nav-links {
+  margin-left: auto;
+}
+
+.site-nav-links ul {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-nav-link {
+  display: block;
+  padding: 19px 14px 16px;
+  border-bottom: 3px solid transparent;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--muted);
+}
+
+.site-nav-link:hover {
+  color: var(--text);
+}
+
+.site-nav-link.is-active {
+  color: var(--text);
+  border-bottom-color: var(--primary);
+}
+
+.site-nav-link:focus-visible {
+  outline-offset: -2px;
+}
+
+.site-nav-cta {
+  padding: 8px 14px;
+  font-size: 12px;
+}
+
+@media (max-width: 719px) {
+  .site-nav-inner {
+    flex-wrap: wrap;
+    padding-top: 10px;
+  }
+
+  .site-nav-cta {
+    margin-left: auto;
+  }
+
+  /* Links drop to their own full-width row. */
+  .site-nav-links {
+    order: 3;
+    width: 100%;
+    margin: 0;
+    overflow-x: auto;
+    border-top: 1px solid var(--line);
+  }
+
+  .site-nav-link {
+    padding: 12px 12px 10px;
+  }
+}
+
+/* ---------- shared type ---------- */
+
+.site-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.site-kicker::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+}
+
+.site-kicker-muted {
+  color: var(--muted);
+}
+
+.site h1 {
+  margin: 0;
+  font-size: clamp(32px, 5.2vw, 56px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+}
+
+.site h2 {
+  margin: 0 0 20px;
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.site h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.site-lead {
+  margin: 20px 0 0;
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.site-section-lead {
+  margin: -8px 0 24px;
+  color: var(--muted);
+}
+
+.site code {
+  overflow-wrap: anywhere;
+}
+
+/* ---------- hero ---------- */
+
+.site-hero {
+  padding-block: 64px 48px;
+  border-bottom: var(--border);
+}
+
+.site-hero-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 40px;
+  align-items: center;
+}
+
+@media (min-width: 960px) {
+  .site-hero-inner {
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 56px;
+  }
+}
+
+/* Pipeline diagram: bordered stages joined by a rule. */
+.site-flow {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-flow li {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 14px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: var(--border);
+}
+
+.site-flow li + li {
+  margin-top: 18px;
+}
+
+.site-flow li + li::before {
+  content: '';
+  position: absolute;
+  top: -20px;
+  left: 30px;
+  width: 2px;
+  height: 18px;
+  background: var(--line-strong);
+}
+
+.site-flow-step {
+  grid-row: span 2;
+  align-self: center;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--primary);
+}
+
+.site-flow-title {
+  font-weight: 700;
+}
+
+.site-flow-detail {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- stage notice ---------- */
+
+.site .site-stage {
+  margin: 32px 0 0;
+}
+
+/* ---------- sections ---------- */
+
+.site-section {
+  padding-block: 56px;
+}
+
+.site-section + .site-section {
+  border-top: 1px solid var(--line);
+}
+
+.site-page-head {
+  padding-block: 56px 40px;
+  border-bottom: var(--border);
+}
+
+.site-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-grid-compact {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.site-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 20px;
+  background: var(--panel);
+  border: var(--border);
+}
+
+.site-card p {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+
+.site-card .site-btn {
+  margin-top: auto;
+}
+
+.site-card-title {
+  font-size: 17px;
+}
+
+.site .site-card-title {
+  margin: 0 0 8px;
+}
+
+.site-card-detail {
+  margin-top: auto;
+  font-size: 12px;
+}
+
+.site .site-card .site-card-detail {
+  margin: auto 0 0;
+  padding-top: 8px;
+  color: var(--primary);
+}
+
+/* ---------- availability tags ---------- */
+
+.site-tag {
+  margin-bottom: 10px;
+  padding: 3px 6px;
+  border: 2px solid currentColor;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.site-tag-available {
+  color: var(--primary);
+}
+
+.site-tag-setup {
+  color: var(--warn);
+}
+
+.site-tag-planned {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+/* ---------- before / after comparison ---------- */
+
+.site-compare {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  border: var(--border);
+}
+
+@media (min-width: 720px) {
+  .site-compare {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .site-compare-after {
+    border-left: var(--border);
+  }
+}
+
+.site-compare-col {
+  padding: 20px;
+}
+
+.site-compare-col h3 {
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.site-compare-after {
+  background: var(--panel);
+}
+
+.site-compare-after h3 {
+  color: var(--primary);
+}
+
+@media (max-width: 719px) {
+  .site-compare-after {
+    border-top: var(--border);
+  }
+}
+
+.site-compare-col .site-list li::before {
+  background: var(--dim);
+}
+
+.site-compare-after .site-list li {
+  color: var(--text);
+}
+
+.site-compare-after .site-list li::before {
+  background: var(--primary);
+}
+
+.site-section-note {
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------- how it works ---------- */
+
+.site-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--border);
+}
+
+.site-steps li {
+  padding: 20px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.site-steps p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.site-step-number {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--primary);
+}
+
+/* ---------- roadmap: visibly not the product ---------- */
+
+.site-roadmap {
+  padding: 28px;
+  border: 2px dashed var(--line-strong);
+}
+
+.site-roadmap-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-roadmap-list li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 16px;
+  border: 1px dashed var(--line-strong);
+}
+
+.site-roadmap-list p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.site-roadmap-phase {
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+@media (max-width: 719px) {
+  .site-roadmap {
+    padding: 20px 16px;
+  }
+}
+
+/* ---------- about ---------- */
+
+.site-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 40px;
+}
+
+@media (min-width: 960px) {
+  .site-split {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 56px;
+  }
+}
+
+.site-split p {
+  color: var(--muted);
+}
+
+.site-stack {
+  margin: 0;
+}
+
+.site-stack div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.site-stack dt {
+  font-weight: 700;
+}
+
+.site-stack dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+.site-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-list li {
+  padding: 10px 0 10px 18px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  position: relative;
+}
+
+.site-list li::before {
+  content: '';
+  position: absolute;
+  top: 18px;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  background: var(--warn);
+}
+
+/* ---------- code blocks ---------- */
+
+.site-code {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  background: #000;
+  border: var(--border);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.site-code code {
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.site-diagram {
+  margin: 0;
+  align-self: start;
+  color: var(--muted);
+}
+
+/* ---------- closing call to action ---------- */
+
+.site-cta {
+  background: var(--panel);
+  border-top: var(--border);
+}
+
+.site-section.site-cta {
+  border-top: var(--border);
+}
+
+.site-cta-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.site-cta-inner p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.site-cta-inner .site-actions {
+  margin-top: 0;
+}
+
+/* ---------- 404 ---------- */
+
+.site-notfound {
+  padding-block: 80px;
+}
+
+.site-notfound-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.site-notfound-mark {
+  width: 96px;
+  height: 96px;
+  margin-bottom: 24px;
+  color: var(--text);
+}
+
+.site-notfound-code {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--primary);
+}
+
+/* ---------- footer ---------- */
+
+.site-footer {
+  padding-block: 28px;
+  background: var(--panel);
+  border-top: var(--border);
+}
+
+.site-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px 40px;
+}
+
+.site-footer-brand .wordmark-text {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.site-footer-brand p {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.site-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-footer-links a {
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--muted);
+}
+
+.site-footer-links a:hover {
+  color: var(--text);
+}
+
+/* ---------- small screens ---------- */
+
+@media (max-width: 719px) {
+  .site-hero {
+    padding-block: 40px 32px;
+  }
+
+  .site-section,
+  .site-page-head {
+    padding-block: 40px;
+  }
+
+  .site-lead {
+    font-size: 16px;
+  }
+}
