@@ -1,3 +1,5 @@
+import { Link } from 'react-router';
+import { PATHS } from '../../app/paths';
 import { EventFeed } from '../../components/pipeline/EventFeed';
 import { FrameResults } from '../../components/pipeline/FrameResults';
 import { LiveStream } from '../../components/pipeline/LiveStream';
@@ -13,6 +15,13 @@ export function LiveMonitoringPage() {
   return (
     <>
       <title>Live Monitoring · VisionGuard</title>
+      <div className="notice notice-info" role="note">
+        <span className="notice-word">Single source</span>
+        <div className="notice-body">
+          This page shows the one pipeline the backend runs today. Once the backend can list
+          cameras, choosing a camera moves to <Link to={PATHS.portal.cameras}>Cameras</Link>.
+        </div>
+      </div>
       <div className={`layout${reachable ? '' : ' is-dimmed'}`}>
         <div className="column column-main">
           <LiveStream

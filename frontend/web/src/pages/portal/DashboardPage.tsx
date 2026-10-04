@@ -1,3 +1,4 @@
+import { CamerasSummaryPanel } from '../../components/cameras/CamerasSummaryPanel';
 import { EventFeed } from '../../components/pipeline/EventFeed';
 import { FrameSummary } from '../../components/pipeline/FrameSummary';
 import { LiveStream } from '../../components/pipeline/LiveStream';
@@ -31,6 +32,7 @@ export function DashboardPage() {
           <PanelLink to={PATHS.portal.live}>Live monitoring →</PanelLink>
           <StatsPanel stats={stats} eventCount={data?.event_count ?? null} />
           <FrameSummary frame={frame} />
+          <CamerasSummaryPanel sourceId={data?.info.source_id} />
         </div>
         <div className="column column-side">
           <StatusPanel status={status} frame={frame} />

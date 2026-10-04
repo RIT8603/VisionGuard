@@ -12,5 +12,13 @@ export const PATHS = {
     live: '/portal/live',
     events: '/portal/events',
     modules: '/portal/modules',
+    cameras: '/portal/cameras',
+    /** Route pattern; build links with cameraPath(). */
+    cameraDetail: '/portal/cameras/:cameraId',
   },
 } as const;
+
+/** URL of one camera's detail page. */
+export function cameraPath(cameraId: string): string {
+  return `${PATHS.portal.cameras}/${encodeURIComponent(cameraId)}`;
+}
