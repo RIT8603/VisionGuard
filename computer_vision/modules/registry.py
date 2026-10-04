@@ -78,6 +78,18 @@ BUILTIN_MODULES: Dict[str, str] = {
     # -- Phase 9 (higher-level analysis) --
     "restricted_zone": "computer_vision.modules.analysis.zone:RestrictedZoneModule",
     "attendance": "computer_vision.modules.analysis.attendance:AttendanceModule",
+    # -- Behaviour and scene analysis (no model of their own) --
+    "low_light": "computer_vision.modules.analysis.low_light:LowLightModule",
+    "loitering": "computer_vision.modules.analysis.loitering:LoiteringModule",
+    "intrusion_detection": "computer_vision.modules.analysis.intrusion:IntrusionDetectionModule",
+    "tailgating": "computer_vision.modules.analysis.tailgating:TailgatingModule",
+    "abandoned_object": "computer_vision.modules.analysis.abandoned_object:AbandonedObjectModule",
+    "inventory_monitoring": "computer_vision.modules.analysis.inventory:InventoryMonitoringModule",
+    # -- Weapons: stock COCO classes (knife, bat, scissors); guns need custom weights --
+    "weapon_detection": "computer_vision.modules.detection.weapon:WeaponDetectionModule",
+    # -- Identification beyond faces. Personal data: off unless enabled. --
+    "number_plate_recognition": "computer_vision.modules.recognition.number_plate:NumberPlateRecognitionModule",
+    "person_reid": "computer_vision.modules.recognition.person_reid:PersonReIdModule",
 }
 
 

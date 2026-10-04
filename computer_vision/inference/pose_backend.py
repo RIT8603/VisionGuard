@@ -15,7 +15,12 @@ from typing import Any, ClassVar, Dict, List, Tuple
 import numpy as np
 
 from computer_vision.core.context import KEYPOINT_NAMES
-from computer_vision.inference.base import BackendError, BackendNotAvailableError, ModelLoadError
+from computer_vision.inference.base import (
+    BackendError,
+    BackendNotAvailableError,
+    ModelLoadError,
+    verify_model_file,
+)
 from computer_vision.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -77,7 +82,9 @@ class UltralyticsPoseBackend(PoseBackend):
     """Wraps an Ultralytics ``-pose`` model.
 
     Parameters:
-        model: Weights. Default ``yolo11n-pose.pt``, downloaded on first use.
+        model: Weights. Default ``yolo11n-pose.pt``. Downloaded only when
+            ``allow_download`` is true.
+        model_sha256: Optional expected SHA-256; loading is refused on mismatch.
         device / imgsz / iou: as for the detection backend.
         model_confidence: model-side score cut; the module applies its own.
     """
@@ -105,8 +112,18 @@ class UltralyticsPoseBackend(PoseBackend):
                 "estimation cannot run.\n    pip install ultralytics"
             ) from exc
 
+        # Weights are pickles: verify (and only if allowed, fetch) first.
+        from computer_vision.inference.ultralytics_backend import _download_only
+
+        model_path = verify_model_file(
+            self._model_ref,
+            expected_sha256=self.params.get("model_sha256"),
+            allow_download=bool(self.params.get("allow_download", False)),
+            download=_download_only,
+        )
+
         try:
-            self._model = YOLO(self._model_ref)
+            self._model = YOLO(model_path)
         except Exception as exc:  # noqa: BLE001 - surfaced with context
             raise ModelLoadError(
                 f"Could not load pose model {self._model_ref!r}: "

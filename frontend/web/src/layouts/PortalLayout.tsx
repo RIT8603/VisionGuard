@@ -19,7 +19,7 @@ export function PortalLayout() {
 }
 
 function PortalShell() {
-  const { status } = usePipeline();
+  const { status, cameras } = usePipeline();
   const { data } = status;
 
   return (
@@ -27,7 +27,12 @@ function PortalShell() {
       <a className="skip-link" href="#portal-main">
         Skip to content
       </a>
-      <PortalHeader info={data?.info} viewState={status.viewState} uptimeSec={data?.uptime_sec} />
+      <PortalHeader
+        info={data?.info}
+        viewState={status.viewState}
+        uptimeSec={data?.uptime_sec}
+        cameras={cameras.data?.cameras}
+      />
       <PortalNav items={PORTAL_NAV} />
       <ConnectionNotice status={status} />
       <main id="portal-main">

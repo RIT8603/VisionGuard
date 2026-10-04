@@ -46,7 +46,8 @@ dashboard at <http://localhost:5173/portal/dashboard>.
 | `/contact` | Public | Contact |
 | `/portal` | Portal | Redirects to `/portal/dashboard` |
 | `/portal/dashboard` | Portal | Live monitoring dashboard |
-| `/portal/modules` | Portal | Module selection (review and select capabilities; not saved) |
+| `/portal/cameras` | Portal | Set the number of cameras and fill in one form per camera; Apply restarts the backend's pipelines |
+| `/portal/modules` | Portal | Module selection (toggling a module applies it to the running backend) |
 | anything else | Public | Branded 404 (keeps the URL that was typed) |
 
 All paths are defined once in [`src/app/paths.ts`](src/app/paths.ts); link with
@@ -69,7 +70,7 @@ src/
     PortalLayout.tsx       PipelineProvider + portal header + tabs + notice + page
   pages/
     public/                LandingPage, AboutPage, ContactPage
-    portal/                DashboardPage, ModulesPage
+    portal/                DashboardPage, CamerasPage, ModulesPage
     NotFoundPage.tsx
   content/
     moduleCatalog.ts       customer-facing module list with status and backend keys

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Sequence
+from typing import List, Sequence
 
 from computer_vision.core.config import VisionGuardConfig
 from computer_vision.core.context import FrameContext
@@ -66,6 +66,10 @@ class VisionPipeline:
 
         self._running = False
         self._stop_requested = False
+        #: True when the last run ended because of Ctrl+C. The run loop swallows
+        #: the interrupt (so the pipeline can shut down cleanly); this lets a
+        #: caller that supervises several pipelines still tell it happened.
+        self.interrupted = False
         self._max_consecutive_failures = 10
         self._min_frame_interval = (
             1.0 / config.processing.max_fps if config.processing.max_fps > 0 else 0.0
@@ -94,17 +98,20 @@ class VisionPipeline:
         limits = limits or RunLimits()
         self._running = True
         self._stop_requested = False
-
-        info = self.source.open()
-        logger.info("Pipeline started on %s", info.as_dict())
-
-        # Start the clock after the source is up: opening a camera can take
-        # seconds, and that must not eat into a --duration budget.
-        started = time.perf_counter()
-        self.stats.started_at = started
-        self._last_frame_at = started
+        self.interrupted = False
 
         try:
+            # Inside the try: if opening fails, modules, the output sink and
+            # any half-opened source are still shut down by `finally`.
+            info = self.source.open()
+            logger.info("Pipeline started on %s", info.as_dict())
+
+            # Start the clock after the source is up: opening a camera can
+            # take seconds, and that must not eat into a --duration budget.
+            started = time.perf_counter()
+            self.stats.started_at = started
+            self._last_frame_at = started
+
             while not self._stop_requested:
                 if limits.reached(self.stats.frames_processed, time.perf_counter() - started):
                     logger.info("Run limit reached")
@@ -137,6 +144,7 @@ class VisionPipeline:
 
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
+            self.interrupted = True
         finally:
             self._running = False
             self._shutdown()
@@ -167,6 +175,13 @@ class VisionPipeline:
         """True when no frame has arrived for longer than the stall timeout."""
         timeout = self.config.processing.stall_timeout_sec
         if timeout <= 0:
+            return False
+
+        if self.source.is_recovering:
+            # The source is working through its own reconnect budget; it
+            # raises when that is exhausted. Restart the idle clock so the
+            # stall check applies again once recovery ends.
+            self._last_frame_at = time.perf_counter()
             return False
 
         idle_for = time.perf_counter() - self._last_frame_at

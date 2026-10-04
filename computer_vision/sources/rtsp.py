@@ -30,7 +30,7 @@ import re
 import threading
 import time
 from contextlib import contextmanager
-from typing import Optional, Tuple
+from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
 
 import cv2
@@ -47,37 +47,68 @@ logger = get_logger(__name__)
 _FFMPEG_OPTIONS_ENV = "OPENCV_FFMPEG_CAPTURE_OPTIONS"
 
 
+#: Query parameter names that carry credentials on common NVR/IP cameras
+#: (e.g. Dahua/Axis style ``?user=admin&password=...``). Matched as substrings.
+_SECRET_QUERY_KEYS = ("pass", "pwd", "token", "secret", "auth", "key", "sig", "credential")
+
+
+def _redact_query(query: str) -> str:
+    if not query:
+        return query
+    parts = []
+    for item in query.split("&"):
+        name, sep, value = item.partition("=")
+        if sep and value and any(k in name.lower() for k in _SECRET_QUERY_KEYS):
+            item = f"{name}=***"
+        parts.append(item)
+    return "&".join(parts)
+
+
 def redact_url(url: str) -> str:
-    """Hide the password in an RTSP URL so it is safe to log.
+    """Hide the secrets in an RTSP URL so it is safe to log.
 
     ``rtsp://admin:hunter2@10.0.0.5/stream`` -> ``rtsp://admin:***@10.0.0.5/stream``
+    ``rtsp://cam/stream?user=admin&password=x`` -> ``...?user=admin&password=***``
 
     Credentials in camera URLs are routinely real and routinely reused, so no
-    code path may ever write one to a log file or an error message.
+    code path may ever write one to a log file or an error message. The user
+    name is kept on purpose: it identifies which account is failing and is
+    not a secret on its own.
     """
     if not url:
         return ""
     try:
         parts = urlsplit(url)
+        port = parts.port  # raises ValueError on a malformed port
     except ValueError:
         # Unparseable: fall back to a blunt regex rather than risk leaking.
-        return re.sub(r"//[^/@]*@", "//***@", url)
+        blunt = re.sub(r"//[^/@]*@", "//***@", url)
+        return re.sub(
+            r"([?&][^=&]*(?:pass|pwd|token|secret|auth|key|sig|credential)[^=&]*=)[^&#]*",
+            r"\1***",
+            blunt,
+            flags=re.I,
+        )
+
+    query = _redact_query(parts.query)
 
     # A password can be present without a username (rtsp://:secret@host),
     # so both must be checked - testing only username leaks that form.
     if not parts.username and not parts.password:
-        return url
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
     userinfo = parts.username or ""
     if parts.password:
         userinfo += ":***"
 
     host = parts.hostname or ""
-    if parts.port:
-        host = f"{host}:{parts.port}"
+    if ":" in host:  # IPv6 literal: keep its brackets
+        host = f"[{host}]"
+    if port:
+        host = f"{host}:{port}"
 
     return urlunsplit(
-        (parts.scheme, f"{userinfo}@{host}", parts.path, parts.query, parts.fragment)
+        (parts.scheme, f"{userinfo}@{host}", parts.path, query, parts.fragment)
     )
 
 
@@ -89,15 +120,28 @@ class _LatestFrameReader:
     count is reported so the drop rate is visible rather than silent.
     """
 
-    def __init__(self, capture: "cv2.VideoCapture", name: str) -> None:
+    def __init__(
+        self, capture: "cv2.VideoCapture", name: str, join_timeout: float = 2.0
+    ) -> None:
         self._capture = capture
         self._name = name
+        self._join_timeout = max(0.1, float(join_timeout))
         self._condition = threading.Condition()
         self._frame: Optional[np.ndarray] = None
+        #: The newest frame again, but never cleared by latest(): what a live
+        #: viewer shows. ``_sequence`` counts captured frames so the viewer
+        #: can tell a new one from the one it already drew.
+        self._newest: Optional[np.ndarray] = None
+        self._sequence = 0
         self._stop = threading.Event()
         self._failed = False
         self._dropped = 0
         self._thread: Optional[threading.Thread] = None
+        #: Set once _run() has returned and will never touch the capture again.
+        self._exited = False
+        #: Set when stop() could not join the thread: the thread then releases
+        #: the capture itself, after its blocking read returns.
+        self._release_on_exit = False
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -106,24 +150,38 @@ class _LatestFrameReader:
         self._thread.start()
 
     def _run(self) -> None:
-        while not self._stop.is_set():
-            try:
-                ok, frame = self._capture.read()
-            except cv2.error as exc:  # pragma: no cover - driver specific
-                logger.debug("Reader thread capture error: %s", exc)
-                ok, frame = False, None
+        try:
+            while not self._stop.is_set():
+                try:
+                    ok, frame = self._capture.read()
+                except cv2.error as exc:  # pragma: no cover - driver specific
+                    logger.debug("Reader thread capture error: %s", exc)
+                    ok, frame = False, None
 
-            if not ok or frame is None:
+                if not ok or frame is None:
+                    with self._condition:
+                        self._failed = True
+                        self._condition.notify_all()
+                    return
+
                 with self._condition:
-                    self._failed = True
+                    if self._frame is not None:
+                        self._dropped += 1
+                    self._frame = frame
+                    self._newest = frame
+                    self._sequence += 1
                     self._condition.notify_all()
-                return
-
+        finally:
             with self._condition:
-                if self._frame is not None:
-                    self._dropped += 1
-                self._frame = frame
-                self._condition.notify_all()
+                self._exited = True
+                release = self._release_on_exit
+            if release:
+                # stop() gave up waiting while this thread was inside read();
+                # releasing from here guarantees release never races a read.
+                try:
+                    self._capture.release()
+                except Exception:  # noqa: BLE001 - best effort on a dead stream
+                    logger.debug("Deferred capture release failed", exc_info=True)
 
     def latest(self, timeout: float) -> Optional[np.ndarray]:
         """Take the newest frame, waiting up to ``timeout`` seconds."""
@@ -139,6 +197,11 @@ class _LatestFrameReader:
             self._frame = None
             return frame
 
+    def peek(self) -> tuple[Optional[np.ndarray], int]:
+        """The newest frame and its sequence number, leaving it for latest()."""
+        with self._condition:
+            return self._newest, self._sequence
+
     @property
     def failed(self) -> bool:
         with self._condition:
@@ -149,15 +212,37 @@ class _LatestFrameReader:
         with self._condition:
             return self._dropped
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
+        """Stop the thread.
+
+        Returns True when the caller may release the capture now. Returns
+        False when the thread is still blocked inside ``capture.read()``;
+        ownership of the capture then passes to the thread, which releases it
+        as soon as that read returns. Releasing a ``VideoCapture`` while
+        another thread is reading it is undefined behaviour in the native
+        backend (crashes, not exceptions).
+        """
         self._stop.set()
         with self._condition:
             self._condition.notify_all()
-        if self._thread is not None and self._thread.is_alive():
-            # The thread may be parked inside a blocking read; it is a daemon
-            # and the capture is about to be released, so do not wait forever.
-            self._thread.join(timeout=2.0)
+        thread = self._thread
         self._thread = None
+        if thread is None:
+            return True
+        if thread.is_alive():
+            # Wait at least one full read timeout, so a normally-behaving
+            # stream always finishes its read before we return.
+            thread.join(timeout=self._join_timeout)
+        with self._condition:
+            if self._exited or not thread.is_alive():
+                return True
+            self._release_on_exit = True
+        logger.warning(
+            "RTSP reader for %s is still blocked in a read; it will release "
+            "the stream when the read returns",
+            self._name,
+        )
+        return False
 
 
 class RTSPSource(OpenCVVideoSource):
@@ -168,6 +253,7 @@ class RTSPSource(OpenCVVideoSource):
     def __init__(self, config: VideoConfig, source_id: str | None = None) -> None:
         super().__init__(source_id or config.resolved_source_id(), config)
         self._reader: Optional[_LatestFrameReader] = None
+        self._recovering = False
         self._reconnects = 0
         self._total_reconnects = 0
         self._total_dropped = 0
@@ -184,6 +270,11 @@ class RTSPSource(OpenCVVideoSource):
     def safe_url(self) -> str:
         """The URL with its password masked. Use this in every message."""
         return redact_url(self.url)
+
+    @property
+    def is_recovering(self) -> bool:
+        """True from a dropped stream until the next frame (or a clean reopen)."""
+        return self._recovering
 
     @property
     def total_reconnects(self) -> int:
@@ -314,17 +405,36 @@ class RTSPSource(OpenCVVideoSource):
     def _start_reader(self) -> None:
         if self._capture is None:
             return
-        self._reader = _LatestFrameReader(self._capture, self._source_id)
+        self._reader = _LatestFrameReader(
+            self._capture,
+            self._source_id,
+            # Longer than one blocking read, so stop() normally joins cleanly.
+            join_timeout=max(2.0, self._config.read_timeout_sec + 1.0),
+        )
         self._reader.start()
 
-    def _stop_reader(self) -> None:
-        if self._reader is not None:
-            self._total_dropped += self._reader.frames_dropped
-            self._reader.stop()
-            self._reader = None
+    def _stop_reader(self) -> bool:
+        """Stop the reader. Returns True if the capture may be released here."""
+        if self._reader is None:
+            return True
+        self._total_dropped += self._reader.frames_dropped
+        safe = self._reader.stop()
+        self._reader = None
+        return safe
+
+    def _drop_capture(self) -> None:
+        """Stop reading and release the capture without racing the reader."""
+        if not self._stop_reader():
+            # The reader thread now owns the capture and releases it.
+            self._capture = None
+        if self._capture is not None:
+            self._capture.release()
+            self._capture = None
 
     def release(self) -> None:
-        self._stop_reader()
+        if not self._stop_reader():
+            self._capture = None  # released by the reader thread instead
+        self._recovering = False
         super().release()
 
     # ------------------------------------------------------------------ #
@@ -347,6 +457,7 @@ class RTSPSource(OpenCVVideoSource):
 
         if frame is not None:
             self._reconnects = 0
+            self._recovering = False
             return FramePacket(
                 frame=frame,
                 frame_id=self._next_frame_id(),
@@ -360,6 +471,20 @@ class RTSPSource(OpenCVVideoSource):
 
         logger.debug("No RTSP frame within %.1fs", self._config.read_timeout_sec)
         return None
+
+    def peek(self) -> tuple[Optional[np.ndarray], int]:
+        """Newest captured frame for a live viewer; see ``BaseVideoSource.peek``.
+
+        The sequence number is offset per connection, so it keeps changing
+        across a reconnect instead of starting again from 1.
+        """
+        reader = self._reader
+        if not self._is_open or reader is None:
+            return None, 0
+        frame, sequence = reader.peek()
+        if frame is None:
+            return None, 0
+        return frame, (self._total_reconnects << 32) | sequence
 
     # ------------------------------------------------------------------ #
     # Reconnection
@@ -382,6 +507,7 @@ class RTSPSource(OpenCVVideoSource):
 
         self._reconnects += 1
         self._total_reconnects += 1
+        self._recovering = True
 
         delay = min(
             self._config.reconnect_delay_sec * (2 ** (self._reconnects - 1)),
@@ -395,10 +521,7 @@ class RTSPSource(OpenCVVideoSource):
             self._config.reconnect_attempts,
         )
 
-        self._stop_reader()
-        if self._capture is not None:
-            self._capture.release()
-            self._capture = None
+        self._drop_capture()
         self._is_open = False
 
         time.sleep(delay)
@@ -408,6 +531,9 @@ class RTSPSource(OpenCVVideoSource):
                 # Reopen without resetting the frame counter or reconnect count.
                 OpenCVVideoSource.open(self)
             self._start_reader()
+            # Reopened. If the new stream then hangs without failing, the
+            # pipeline's stall timeout applies again.
+            self._recovering = False
             logger.info("RTSP stream %s reconnected", self.safe_url)
         except SourceOpenError as exc:
             logger.warning("Reconnect failed: %s", exc)
@@ -434,5 +560,8 @@ class _FailedReader:
         time.sleep(min(timeout, 0.1))
         return None
 
-    def stop(self) -> None:
-        return None
+    def peek(self) -> tuple[None, int]:
+        return None, 0
+
+    def stop(self) -> bool:
+        return True

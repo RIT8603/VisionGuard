@@ -86,13 +86,31 @@ processing:
 # It observes the pipeline; it cannot reconfigure or control it.
 dashboard:
   enabled: false
-  host: "127.0.0.1"        # NO AUTHENTICATION - localhost only by default.
-                           # 0.0.0.0 exposes it to the whole network; put it
-                           # behind a reverse proxy with auth if you do that.
+  host: "127.0.0.1"        # localhost only by default (no token needed there).
+                           # Any network bind (0.0.0.0 / LAN IP) REQUIRES a
+                           # token: VISIONGUARD_DASHBOARD_TOKEN in .env, or a
+                           # random one printed at startup. Plain HTTP - use a
+                           # TLS reverse proxy on untrusted networks.
   port: 8080
   stream_fps: 15.0         # caps JPEG encoding only; analysis runs full rate
+  # Live view: the picture is the camera's newest frame at stream_fps, with
+  # the latest results drawn on it, so slow detection no longer freezes the
+  # video - it only makes the boxes trail a little. RTSP cameras only (a
+  # webcam or file shows analysed frames, as before). false = old behaviour.
+  live_view: true
+  # Where the boxes go on that live picture.
+  #   true  = the picture runs about one analysis interval behind the camera
+  #           (at most 3 s), so each box is drawn between two positions that
+  #           were actually measured - boxes sit on what they mark.
+  #   false = the newest frame, boxes moved along their velocity. No delay,
+  #           but at a low analysis rate they visibly miss (measured overlap
+  #           0.72 at 5 fps, 0.56 at 2 fps, 0.40 at 1 fps).
+  live_view_sync: true
   jpeg_quality: 75
   max_events: 200
+  max_streams: 4           # concurrent live-video viewers; extra ones get 503
+  allowed_hosts: []        # extra Host names accepted (DNS-rebinding guard)
+  # auth_token: never put the token here - use VISIONGUARD_DASHBOARD_TOKEN
 
 # -----------------------------------------------------------------------------
 # AI modules
@@ -109,14 +127,89 @@ dashboard:
 # -----------------------------------------------------------------------------
 modules:
 
+  # ---- Scene conditions ----
+  # Keep this FIRST: with `enhance: true` it brightens the frame for every
+  # module after it, and modules run in the order they are listed here.
+  low_light:
+    enabled: false
+    threshold: 50            # mean brightness (0-255) below this = dark
+    recover: 65              # ...and back above this = light again
+    min_frames: 15           # frames a change must hold before it counts
+    # Brighten the frame while dark (gamma + local contrast). Off by default:
+    # on test footage darkened in software the detector found MORE people on
+    # the raw dark frame than on the brightened one, because brightening also
+    # amplifies noise. Try it on your own night footage before trusting it.
+    enhance: false
+    target_brightness: 110
+    clahe_clip: 2.0
+    severity: info
+
   # ---- Detection ----
   person_detection:
     enabled: true          # Phase 2
-    backend: ultralytics   # see computer_vision/inference/factory.py for available backends
-    model: computer_vision/Model/detection/yolo11n.pt      # downloaded once on first run
-    device: cpu            # cpu | cuda | 0 | 0,1 ...
-    imgsz: 640             # inference resolution; lower is faster
-    confidence_threshold: 0.4
+    # openvino    = runs the exported model directly: no PyTorch in the
+    #               process (243 MB instead of 923 MB, starts in 1 s instead
+    #               of 4 s), identical detections. OpenVINO exports only.
+    # ultralytics = needed for .pt weights; also runs exports.
+    # Detectors share one inference only when backend, model, device and
+    # imgsz all agree - keep the four the same on every detector.
+    backend: openvino
+    # YOLO11s exported to OpenVINO with 8-bit weights: a larger, more
+    # accurate model than yolo11n, and about as fast as yolo11n.pt at 640
+    # was under PyTorch. Needs `pip install openvino`.
+    # yolo11s_openvino_model (16-bit) sits beside it: same accuracy, about
+    # 2x slower on a CPU, kept as the reference the 8-bit one was checked
+    # against (digest 30ded5cea4672289ffa1ebe00e9a93bbe561ce51e0286f5923a5e09bc84d71a3).
+    # To go back to the PyTorch weights, use these four lines instead:
+    #   backend: ultralytics
+    #   model: computer_vision/Model/detection/yolo11n.pt
+    #   model_sha256: 0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1
+    #   device: cpu
+    #   imgsz: 960
+    # (and the same on object_detection / vehicle_detection below).
+    #
+    # FASTER, LESS ACCURATE: the same model exported at 384x640 runs about
+    # 2.2x faster but sees distant people worse - on the street test clip
+    # person recall fell from 0.64 to 0.47. Worth it for near-field cameras
+    # (a doorway, a counter), not for a wide street view. To use it, on every
+    # detector:
+    #   model: computer_vision/Model/detection/yolo11s_int8_384_openvino_model
+    #   model_sha256: 7e8f33bee26e42d5a54fa4c1d1b7e0719b80969361c5f0f446cc80f791333313
+    #   imgsz: [384, 640]
+    #
+    # `python -m tools.diagnose_speed` times both, on CPU and on the
+    # integrated GPU, on this machine - run it before choosing.
+    model: computer_vision/Model/detection/yolo11s_int8_openvino_model
+    # The model is pinned and checked before loading. For a .pt file this is
+    # its SHA-256 (.pt weights are pickles - loading one runs code); for an
+    # exported model directory it is the digest of every file in it.
+    # A missing .pt is an error unless allow_download: true.
+    model_sha256: 535501d57695171dce9244c053c4c09950b2576fda2b696950bcb76982ef9303
+    # intel:auto = time the CPU and the Intel graphics chip at start-up and use
+    # the faster one (graphics only if it loads, is clearly faster and gives
+    # the same scores; otherwise CPU). The log line "device auto: ..." says
+    # which was chosen. Force one with intel:cpu or intel:gpu.
+    device: intel:auto     # .pt: cpu | cuda | 0 ...   OpenVINO: intel:auto | intel:cpu | intel:gpu
+                           # intel:gpu = integrated graphics; often faster
+                           # than the CPU and leaves the CPU free for video
+                           # decoding. First start compiles for ~30 s.
+    # Inference resolution. An exported model takes exactly the [height,
+    # width] it was exported with; this one matches a 16:9 frame at
+    # target_width 960, so distant (small) people are not shrunk away before
+    # the model sees them. Detectors only share one inference when model,
+    # device and imgsz agree - keep all three the same on every detector
+    # that uses this model.
+    imgsz: [544, 960]
+    # 0.5 was tried and put back: on the street test clip it bought 1 point
+    # of precision (0.97 -> 0.98) for 9 points of recall (0.64 -> 0.55), and
+    # tracking accuracy fell with it (MOTA 0.55 -> 0.46 at 2 fps). The wrong
+    # boxes on that clip score 0.6-0.8, so no threshold in this range removes
+    # them; it only loses distant people.
+    confidence_threshold: 0.35
+    # Boxes scoring between this and confidence_threshold are not reported,
+    # but person_tracking may use one to keep an existing id alive through a
+    # weak frame (a person half hidden by an umbrella). Remove to turn off.
+    candidate_threshold: 0.25
     min_box_area: 0        # discard boxes smaller than this many pixels
 
   # Detectors configured with the same model share one load and one inference
@@ -124,22 +217,56 @@ modules:
   # Measured: 3 detectors on yolo11n went 9.0 -> 19.3 FPS with sharing on.
   # Set `share_model: false` on a module to opt it out.
   object_detection:
-    enabled: false
-    model: computer_vision/Model/detection/yolo11n.pt
+    enabled: true
+    # backend / model / device / imgsz: same as person_detection, so they share one inference
+    backend: openvino
+    model: computer_vision/Model/detection/yolo11s_int8_openvino_model
+    model_sha256: 535501d57695171dce9244c053c4c09950b2576fda2b696950bcb76982ef9303
+    device: intel:auto
+    imgsz: [544, 960]
     confidence_threshold: 0.4
     labels: []             # empty = every class the model knows (80 for COCO)
+    # People and vehicles already have their own detectors and trackers.
+    # Reported here as well, each got a second box and a second track id.
+    exclude_labels: [person, car, truck, bus, motorcycle, bicycle]
+    # Boxes of different classes on the same spot (clutter read as both
+    # "suitcase" and "chair") are reduced to the more confident one. 0 = off.
+    dedupe_iou: 0.7
 
   vehicle_detection:
-    enabled: false
-    model: computer_vision/Model/detection/yolo11n.pt
+    enabled: true
+    # backend / model / device / imgsz: same as person_detection, so they share one inference
+    backend: openvino
+    model: computer_vision/Model/detection/yolo11s_int8_openvino_model
+    model_sha256: 535501d57695171dce9244c053c4c09950b2576fda2b696950bcb76982ef9303
+    device: intel:auto
+    imgsz: [544, 960]
     confidence_threshold: 0.4
+    candidate_threshold: 0.25   # see person_detection
     labels: [car, truck, bus, motorcycle, bicycle]
 
   # Counts people from person_detection. Runs no model of its own, so it is
   # effectively free - but it requires person_detection to be enabled.
   crowd_detection:
-    enabled: false
+    enabled: true
     threshold: 5           # people at or above this count = crowded
+
+  # Weapon-like objects. The stock model knows knife, baseball bat and
+  # scissors only - COCO has no gun class. For firearms, point `model` at a
+  # custom-trained detector and set `labels` to its class names.
+  weapon_detection:
+    enabled: false
+    # backend / model / device / imgsz: same as person_detection, so they share one inference
+    backend: openvino
+    model: computer_vision/Model/detection/yolo11s_int8_openvino_model
+    model_sha256: 535501d57695171dce9244c053c4c09950b2576fda2b696950bcb76982ef9303
+    device: intel:auto
+    imgsz: [544, 960]
+    confidence_threshold: 0.4
+    labels: [knife, baseball bat, scissors]
+    min_frames: 3            # consecutive frames before the event
+    cooldown_seconds: 30
+    severity: critical
 
   # --- these three need custom-trained weights ---
   # No stock COCO model contains helmet, vest, fire or smoke classes.
@@ -193,26 +320,84 @@ modules:
     cooldown_seconds: 30   # quiet period after reporting
     severity: warning
 
+  # Reads vehicle registration plates. PERSONAL DATA - off unless enabled.
+  # Reads from the original capture, not the 960px frame, and only when the
+  # plate is at least min_plate_width pixels wide there: smaller plates are
+  # boxed but not read, because their characters are not in the image.
+  number_plate_recognition:
+    enabled: false           # requires vehicle_tracking
+    detector_model: computer_vision/Model/anpr/plate_detector_yolov9t_384.onnx
+    detector_sha256: 888397b96d761c89db40bc9c305838e8652660f5e282c2cadebbe8d2951a77a8
+    ocr_model: computer_vision/Model/anpr/plate_ocr_cct_s_v2_global.onnx
+    ocr_sha256: 384bbbd2cea3ef54761d3df70822ef3a349ee1a112aeafddbe0e3ba06bc6e47b
+    device: cpu              # cpu | gpu (OpenVINO)
+    plate_confidence: 0.4
+    min_plate_width: 80      # px in the original capture
+    read_confidence: 0.85    # mean character probability to accept a read
+    min_characters: 4
+    votes: 2                 # identical reads before a plate is reported
+    interval_frames: 5       # look at each vehicle every N frames
+    max_vehicles: 2          # vehicles examined per frame, largest first
+    severity: info
+
+  # Recognises a person again after they leave and return, or on another
+  # camera, from how they look (clothing, build) - not from a face.
+  # PERSONAL DATA - off unless enabled. You supply the model (107 MB, see
+  # computer_vision/Model/README.md). For several cameras, run one VisionGuard
+  # per camera and give them all the same gallery_path.
+  person_reid:
+    enabled: false           # requires person_tracking
+    model: computer_vision/Model/reid/person_reid_youtu_2021nov.onnx
+    model_sha256: 0579683334d4b9440221606dcb461656dd0dc64143b18f48faedaced9b4f580d
+    device: cpu
+    threshold: 0.6           # cosine similarity to call two people the same
+    min_height: 100          # px in the original capture; smaller crops are skipped
+    samples: 3               # crops averaged before deciding
+    interval_frames: 5
+    max_per_frame: 2         # the model is heavy; cap crops embedded per frame
+    identity_ttl_seconds: 1800
+    gallery_path: null       # e.g. computer_vision/Model/reid/gallery.npz
+    severity: info
+
   # ---- Tracking ----
   person_tracking:
     enabled: true          # Phase 3 - requires person_detection
-    iou_threshold: 0.3     # minimum overlap to continue a track
+    iou_threshold: 0.2     # minimum overlap to continue a track. Low on
+                           # purpose: on CPU a person moves far between
+                           # processed frames, and 0.3 kept splitting ids.
     max_age: 30            # frames a track survives unmatched (occlusion)
     min_hits: 2            # matches before a track is reported
     publish_coasting: false  # report tracks not seen this frame
+    # At a low processing rate a walker clears their own width between two
+    # frames and overlaps nothing. This lets the nearest detection of similar
+    # size, within 0.8 box-sizes of where the track should be, continue it.
+    # Used only while the rate is below ~6 fps. Measured: identity switches
+    # 106 -> 41 at 2 fps, 136 -> 88 at 1 fps. 0 = off.
+    max_center_distance: 0.8
+    # Number a track only once it is confirmed, so ids count people that
+    # were reported, not every flicker (ids used to run into the thousands).
+    compact_ids: true
 
   # Trackers run no model, so they cost ~0.02 ms. Each requires its detector.
   object_tracking:
-    enabled: false         # requires object_detection
+    enabled: true         # requires object_detection
     iou_threshold: 0.3
     max_age: 30
     min_hits: 2
+    max_center_distance: 0.8   # see person_tracking
+    compact_ids: true
 
   vehicle_tracking:
-    enabled: false         # requires vehicle_detection
+    enabled: true         # requires vehicle_detection
     iou_threshold: 0.25    # vehicles move further between frames than people
     max_age: 45
     min_hits: 2
+    # The detector wavers between car / truck / bus on the same vehicle;
+    # without this each flip started a new id.
+    match_across_labels: true
+    candidate_iou_threshold: 0.5   # overlap a low-confidence box needs to continue a track
+    max_center_distance: 0.8   # see person_tracking
+    compact_ids: true
 
   # ---- Pose and posture ----
   # Pose runs its own model (a second inference, ~40 ms on CPU). It does not
@@ -220,7 +405,8 @@ modules:
   pose_detection:
     enabled: false
     backend: ultralytics
-    model: computer_vision/Model/pose/yolo11n-pose.pt   # downloaded on first use
+    model: computer_vision/Model/pose/yolo11n-pose.pt
+    model_sha256: 869e83fcdffdc7371fa4e34cd8e51c838cc729571d1635e5141e3075e9319dc0
     device: cpu
     imgsz: 640
     confidence_threshold: 0.4
@@ -241,13 +427,33 @@ modules:
   # them and stops there - notifying, escalating and recording are separate
   # concerns that will consume these events later.
   restricted_zone:
-    enabled: false
+    enabled: true
     sources: [person_tracking]   # any tracking modules; sets the dependency
     reference_point: bottom_center  # bottom_center (ground plane) | center
     min_frames: 2                # frames of agreement before a state flips
     dwell_seconds: 10            # emit zone_dwell after this long; 0 = off
     severity: warning            # info | warning | critical
     classes: []                  # optional label allowlist
+    # Ignore a track until it has moved this many of its own box-sizes from
+    # where it was first seen. Stops something that never moves - a coat
+    # rack read as a person, or a shopkeeper who stands in the same spot all
+    # day - from holding the zone "occupied" and raising dwell events.
+    # THE COST: a person already standing still inside the zone when first
+    # detected is not reported until they move - and at a low frame rate ids
+    # change often, so that happens a lot. 0 = report everyone (default).
+    # Try 0.5 once the analysis rate is 5 fps or better.
+    min_travel: 0
+    # One visit stays one visit when the tracker falters. A track that
+    # disappears inside the zone is waited for this long before its exit is
+    # reported (a missed frame used to be an exit plus a new entry); a real
+    # exit by disappearance is reported that much later. 0 = off.
+    lost_grace_seconds: 2.0
+    # A new id appearing inside the zone within this many box-sizes of where
+    # a track went missing there continues that visit (the tracker renumbered
+    # the same person). 0 = a new id is always a new visit.
+    # Measured on the walking clip at 10 fps: entries 54 -> 33, exits by
+    # "track_lost" 33 -> 8, visits under 2 s 26 -> 11.
+    handoff_distance: 1.0
     # Polygons are fractions of the frame (0.0-1.0), NOT pixels, so they
     # survive a resolution or target_width change.
     zones:
@@ -261,3 +467,62 @@ modules:
     min_sightings: 3         # frames before a check-in is recorded
     absence_timeout: 60      # seconds unseen before a check-out
     severity: info
+
+  # ---- Behaviour ----
+  # All of these read tracks and detections that already exist and run no
+  # model of their own, so each costs well under a millisecond per frame.
+
+  # A person staying in roughly one place. Works anywhere in the frame;
+  # restricted_zone's dwell timer only fires inside a drawn zone.
+  loitering:
+    enabled: false           # requires person_tracking
+    sources: [person_tracking]
+    seconds: 30              # how long counts as loitering
+    radius: 0.08             # "one place": fraction of the frame diagonal
+    cooldown_seconds: 60     # repeat for the same person after this
+    severity: warning
+    zones: []                # optional; empty = anywhere in the frame
+
+  # A person present during hours when nobody should be. This is the part of
+  # "illegal activity" decidable from place and time; it does not recognise
+  # actions such as fighting or theft.
+  intrusion_detection:
+    enabled: false           # requires person_tracking
+    sources: [person_tracking]
+    active_hours: "22:00-06:00"   # local time; a list of ranges also works; empty = always
+    min_frames: 3
+    cooldown_seconds: 60
+    severity: critical
+    zones: []                # optional; empty = the whole frame
+
+  # Two people crossing an entry line back to back. Also counts people in
+  # and out across the line. Draw the line across the doorway.
+  tailgating:
+    enabled: false           # requires person_tracking
+    sources: [person_tracking]
+    line: [[0.30, 0.60], [0.70, 0.60]]   # two points, fractions of the frame
+    min_gap_seconds: 2.0     # a second person sooner than this is tailgating
+    direction: any           # any | in | out
+    report_crossings: false  # also emit a line_crossed event per person
+    severity: warning
+
+  # A bag left still with nobody near it.
+  abandoned_object:
+    enabled: false           # requires object_tracking and person_detection
+    labels: [backpack, handbag, suitcase]
+    seconds: 20              # still and unattended for this long
+    owner_distance: 1.5      # "near": this many object-sizes from a person
+    move_tolerance: 0.5      # "still": centre moves less than this many object-sizes
+    severity: warning
+
+  # Counts item classes in view and reports when a count leaves its range.
+  # Items must be classes object_detection reports.
+  inventory_monitoring:
+    enabled: false           # requires object_detection
+    source_module: object_detection
+    window_frames: 15        # counts are the median over this many frames
+    severity: warning
+    items:
+      chair: {min: 1}
+      bottle: {min: 1, max: 20}
+    zones: []                # optional; empty = the whole frame

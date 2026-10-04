@@ -19,7 +19,66 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+import math
+
 import numpy as np
+
+
+#: Marker for values that cannot be represented in JSON and are dropped.
+_UNSERIALISABLE = object()
+
+
+def json_safe(value: Any) -> Any:
+    """Return ``value`` reduced to plain JSON types.
+
+    Module ``extra`` payloads routinely carry backend objects (a face
+    detector's ``RawFace``) and NumPy scalars/arrays. None of those can be
+    encoded by a JSON response, and one such value anywhere in a snapshot turns
+    the whole dashboard status call into a 500. This keeps what JSON can carry
+    and drops what it cannot:
+
+    * NumPy scalars become Python numbers/bools; small arrays become lists.
+    * NaN and infinity become ``None`` (strict JSON has no spelling for them).
+    * Enums become their value; mapping keys become strings.
+    * Anything else (arbitrary objects, large arrays such as images) is
+      dropped from its container rather than failing the response.
+    """
+    result = _json_safe(value)
+    return None if result is _UNSERIALISABLE else result
+
+
+#: Arrays bigger than this are pixel data or embeddings, not results.
+_MAX_ARRAY_ITEMS = 1024
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, Enum):
+        return _json_safe(value.value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, np.generic):
+        return _json_safe(value.item())
+    if isinstance(value, np.ndarray):
+        if value.size > _MAX_ARRAY_ITEMS:
+            return _UNSERIALISABLE
+        return _json_safe(value.tolist())
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for key, item in value.items():
+            safe = _json_safe(item)
+            if safe is not _UNSERIALISABLE:
+                out[str(key.value if isinstance(key, Enum) else key)] = safe
+        return out
+    if isinstance(value, (list, tuple, set, frozenset)):
+        items = (_json_safe(item) for item in value)
+        return [item for item in items if item is not _UNSERIALISABLE]
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return _UNSERIALISABLE
 
 
 @dataclass(frozen=True)
@@ -316,8 +375,17 @@ class FrameContext:
     source_id: str
     monotonic_ts: float
     wall_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    #: The frame as captured, before ``target_width`` resizing. Every result
+    #: is in ``frame`` coordinates; this exists only for the few modules that
+    #: must read detail the resize destroys (number plates). A reference, not
+    #: a copy - never draw on it. ``None`` when nothing was resized.
+    original_frame: Optional[np.ndarray] = None
 
     detections: Dict[str, List[Detection]] = field(default_factory=dict)
+    #: Boxes a detector saw but scored below its reporting threshold. Not
+    #: results: they are never drawn, counted or serialised. They exist so a
+    #: tracker can keep an existing identity alive through a weak frame.
+    candidates: Dict[str, List[Detection]] = field(default_factory=dict)
     tracks: Dict[str, List[Track]] = field(default_factory=dict)
     poses: Dict[str, List[Pose]] = field(default_factory=dict)
     events: List[Event] = field(default_factory=list)
@@ -362,6 +430,18 @@ class FrameContext:
 
     def has_detections(self, module_name: str) -> bool:
         return bool(self.detections.get(module_name))
+
+    def add_candidates(self, module_name: str, candidates: Iterable[Detection]) -> None:
+        """Publish below-threshold boxes for a tracker to consider."""
+        items = list(candidates)
+        for det in items:
+            if not det.source_module:
+                det.source_module = module_name
+        self.candidates.setdefault(module_name, []).extend(items)
+
+    def get_candidates(self, module_name: str) -> List[Detection]:
+        """Below-threshold boxes from one module (empty unless it publishes any)."""
+        return list(self.candidates.get(module_name, []))
 
     # ---------------- tracks ---------------- #
 
@@ -427,8 +507,12 @@ class FrameContext:
     # ---------------- serialisation ---------------- #
 
     def summary(self) -> Dict[str, Any]:
-        """JSON-safe snapshot. Never includes pixel data."""
-        return {
+        """JSON-safe snapshot. Never includes pixel data.
+
+        Passed through :func:`json_safe`, so backend objects a module left in
+        ``extra`` (e.g. face landmarks) can never break a JSON consumer.
+        """
+        return json_safe({
             "frame_id": self.frame_id,
             "source_id": self.source_id,
             "timestamp": self.timestamp_iso,
@@ -448,4 +532,4 @@ class FrameContext:
             "events": [event.to_dict() for event in self.events],
             "metadata": self.metadata,
             "errors": self.errors,
-        }
+        })

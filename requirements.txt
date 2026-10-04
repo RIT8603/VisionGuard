@@ -13,10 +13,21 @@ python-dotenv>=1.0          # optional .env support
 #
 # LICENSE: ultralytics is AGPL-3.0. Fine for development and open-source
 # deployments; review before shipping a closed-source product. The
-# DetectorBackend interface in app/models/base.py exists so this can be
+# DetectorBackend interface in computer_vision/inference/base.py exists so this can be
 # swapped for an ONNX Runtime or OpenCV-DNN backend without touching any
 # AI module. See README "Detection backend".
-ultralytics>=8.3,<9
+# Pinned exactly: ultralytics releases 8.3.41, 8.3.42, 8.3.45 and 8.3.46 were
+# published to PyPI compromised (Dec 2024), so an open range is a real risk.
+# Bump deliberately after checking the release, not implicitly on install.
+# For hash-locked installs: pip-compile --generate-hashes requirements.txt
+ultralytics==8.4.161
+
+# --- faster inference on Intel CPUs ---
+# Needed only when a detector's `model` is an *_openvino_model directory,
+# which the shipped configs/config.yaml uses. Runs YOLO several times faster
+# than PyTorch on an Intel CPU, at the same accuracy. To do without it, point
+# the detectors back at yolo11n.pt (see the comment in config.yaml).
+openvino==2026.4.1
 
 # --- web dashboard ---
 # Needed only when dashboard.enabled is true.

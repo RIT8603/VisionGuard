@@ -38,10 +38,13 @@ const INITIAL: PipelineStatus = {
 /**
  * Polls /api/status every STATUS_POLL_MS while `active`.
  *
+ * `camera` picks which camera's status to follow (null = the backend's
+ * first). Changing it starts over from "connecting" for the new camera.
+ *
  * The next request is scheduled only after the previous one settles, so a
  * slow backend is never hit with overlapping requests.
  */
-export function usePipelineStatus(active: boolean): PipelineStatus {
+export function usePipelineStatus(active: boolean, camera: string | null = null): PipelineStatus {
   const [status, setStatus] = useState<PipelineStatus>(INITIAL);
 
   // Bookkeeping that survives pauses (tab hidden) without triggering renders.
@@ -54,6 +57,7 @@ export function usePipelineStatus(active: boolean): PipelineStatus {
     lastFrameChangeAt: null as number | null,
     lastUptime: null as number | null,
     restartCount: 0,
+    camera: undefined as string | null | undefined,
   });
 
   useEffect(() => {
@@ -62,6 +66,21 @@ export function usePipelineStatus(active: boolean): PipelineStatus {
     const t = tracking.current;
     const controller = new AbortController();
     let timer: number | undefined;
+
+    // A different camera is a different pipeline: its frame ids and uptime
+    // have nothing to do with the last one's, so forget them (but not the
+    // restart count - this is not a backend restart).
+    const cameraChanged = t.camera !== camera;
+    if (cameraChanged) {
+      t.camera = camera;
+      t.data = null;
+      t.error = null;
+      t.failures = 0;
+      t.lastSuccessAt = null;
+      t.lastFrameId = null;
+      t.lastFrameChangeAt = null;
+      t.lastUptime = null;
+    }
 
     const publish = () => {
       const now = Date.now();
@@ -81,7 +100,7 @@ export function usePipelineStatus(active: boolean): PipelineStatus {
     const tick = async () => {
       const startedAt = performance.now();
       try {
-        const data = await getStatus(controller.signal);
+        const data = await getStatus(controller.signal, camera);
         const now = Date.now();
 
         // uptime_sec is wall-clock time since the dashboard started, so it
@@ -113,12 +132,13 @@ export function usePipelineStatus(active: boolean): PipelineStatus {
       timer = window.setTimeout(tick, Math.max(0, STATUS_POLL_MS - elapsed));
     };
 
+    if (cameraChanged) publish();
     void tick();
     return () => {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [active]);
+  }, [active, camera]);
 
   return status;
 }

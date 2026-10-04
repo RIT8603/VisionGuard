@@ -323,6 +323,109 @@ class TestEvents:
         assert exits[0].data["reason"] == "track_lost"
         assert module.process(ctx([], 3, ts=4.0)).data["zones"]["bay"] == 0
 
+    def test_a_missed_frame_does_not_end_the_visit(self):
+        """A tracker leaves a person out on frames the detector missed them."""
+        module = build(min_frames=1, dwell_seconds=5)
+        module.process(ctx([track(1, INSIDE)], 1, ts=0.0))
+
+        gap = ctx([], 2, ts=0.5)
+        result = module.process(gap)
+        assert gap.events == []
+        assert result.data["zones"]["bay"] == 1
+
+        back = ctx([track(1, INSIDE)], 3, ts=1.0)
+        module.process(back)
+        assert back.events == []
+
+        later = ctx([track(1, INSIDE)], 4, ts=6.0)
+        module.process(later)
+        assert [e.event_type for e in later.events] == [EVENT_DWELL]
+
+    def test_a_track_gone_longer_than_the_grace_exits_from_when_last_seen(self):
+        module = build(min_frames=1, lost_grace_seconds=2.0)
+        module.process(ctx([track(1, INSIDE)], 1, ts=0.0))
+        module.process(ctx([track(1, INSIDE)], 2, ts=4.0))
+        assert module.process(ctx([], 3, ts=5.0)).data["zones"]["bay"] == 1
+
+        context = ctx([], 4, ts=6.5)
+        module.process(context)
+
+        assert [e.event_type for e in context.events] == [EVENT_EXIT]
+        assert context.events[0].data["dwell_seconds"] == 4.0
+        assert context.events[0].data["reason"] == "track_lost"
+
+    def test_without_a_grace_a_lost_track_exits_at_once(self):
+        module = build(min_frames=1, lost_grace_seconds=0)
+        module.process(ctx([track(1, INSIDE)], 1, ts=0.0))
+
+        context = ctx([], 2, ts=0.5)
+        module.process(context)
+
+        assert [e.event_type for e in context.events] == [EVENT_EXIT]
+        assert context.events[0].data["dwell_seconds"] == 0.5
+
+    def test_a_new_id_in_the_same_place_continues_the_visit(self):
+        """The tracker renumbered someone: one visit, not an exit and an entry."""
+        module = build(min_frames=1, dwell_seconds=5)
+        module.process(ctx([track(1, INSIDE)], 1, ts=0.0))
+        module.process(ctx([], 2, ts=0.5))
+
+        nearby = (410, 105, 510, 405)
+        renamed = ctx([track(2, nearby)], 3, ts=1.0)
+        result = module.process(renamed)
+        assert renamed.events == []
+        assert result.data["zones"]["bay"] == 1
+
+        later = ctx([track(2, nearby)], 4, ts=5.5)
+        module.process(later)
+        assert [e.event_type for e in later.events] == [EVENT_DWELL]
+        assert later.events[0].subject["track_id"] == 2
+
+        gone = ctx([], 5, ts=9.0)
+        module.process(gone)
+        assert [e.event_type for e in gone.events] == [EVENT_EXIT]
+        assert gone.events[0].data["dwell_seconds"] == 5.5
+
+    def test_a_new_id_far_away_is_a_new_visit(self):
+        module = build(min_frames=1, zones=[{"name": "bay", "polygon": [[0, 0], [1, 0], [1, 1], [0, 1]]}])
+        module.process(ctx([track(1, OUTSIDE)], 1, ts=0.0))
+
+        context = ctx([track(2, INSIDE)], 2, ts=0.5)
+        module.process(context)
+
+        assert [e.event_type for e in context.events] == [EVENT_ENTRY]
+        assert context.events[0].subject["track_id"] == 2
+
+    def test_a_new_id_does_not_take_over_a_track_that_is_still_there(self):
+        module = build(min_frames=1)
+        module.process(ctx([track(1, INSIDE)], 1, ts=0.0))
+
+        context = ctx([track(1, INSIDE), track(2, (410, 105, 510, 405))], 2, ts=0.5)
+        result = module.process(context)
+
+        assert [e.subject["track_id"] for e in context.events] == [2]
+        assert result.data["zones"]["bay"] == 2
+
+    def test_a_different_kind_of_thing_does_not_continue_the_visit(self):
+        module = build(min_frames=1)
+        module.process(ctx([track(1, INSIDE)], 1, ts=0.0))
+        module.process(ctx([], 2, ts=0.5))
+
+        context = ctx([track(2, INSIDE, label="dog")], 3, ts=1.0)
+        module.process(context)
+
+        assert [e.event_type for e in context.events] == [EVENT_ENTRY]
+
+    def test_handoff_can_be_turned_off(self):
+        module = build(min_frames=1, handoff_distance=0)
+        module.process(ctx([track(1, INSIDE)], 1, ts=0.0))
+        module.process(ctx([], 2, ts=0.5))
+
+        context = ctx([track(2, INSIDE)], 3, ts=1.0)
+        module.process(context)
+
+        assert [e.event_type for e in context.events] == [EVENT_ENTRY]
+
     def test_occupancy_is_reported(self):
         module = build(min_frames=1)
         context = ctx([track(1, INSIDE), track(2, INSIDE), track(3, OUTSIDE)])

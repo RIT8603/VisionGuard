@@ -61,7 +61,10 @@ def state() -> DashboardState:
 
 @pytest.fixture
 def client(state) -> TestClient:
-    return TestClient(build_app(state))
+    # A real browser on this machine sends Host: 127.0.0.1 / localhost.
+    # TestClient's default "testserver" is (correctly) rejected by the
+    # DNS-rebinding guard.
+    return TestClient(build_app(state), base_url="http://127.0.0.1")
 
 
 # --------------------------------------------------------------------------- #

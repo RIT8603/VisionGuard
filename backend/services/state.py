@@ -15,7 +15,12 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional, Tuple
+
+
+#: A stream reads several times a second; a thumbnail about once a second.
+_STREAM_DEMAND_SEC = 1.5
+_SNAPSHOT_DEMAND_SEC = 4.0
 
 
 @dataclass
@@ -34,6 +39,9 @@ class DashboardState:
     _stats: Dict[str, Any] = field(default_factory=dict, repr=False)
     _events: Deque[Dict[str, Any]] = field(default_factory=deque, repr=False)
     _event_seq: int = 0
+    _last_publish_at: Optional[float] = field(default=None, repr=False)
+    _stream_read_at: Optional[float] = field(default=None, repr=False)
+    _snapshot_read_at: Optional[float] = field(default=None, repr=False)
 
     #: Static description of the run, set once at startup.
     info: Dict[str, Any] = field(default_factory=dict)
@@ -57,6 +65,7 @@ class DashboardState:
     ) -> None:
         """Replace the current snapshot and wake any waiting stream readers."""
         with self._frame_ready:
+            self._last_publish_at = time.monotonic()
             if jpeg is not None:
                 self._jpeg = jpeg
                 self._frame_seq += 1
@@ -67,9 +76,34 @@ class DashboardState:
                 self._events.append({"id": self._event_seq, **event})
             self._frame_ready.notify_all()
 
+    def publish_frame(self, jpeg: bytes) -> None:
+        """Replace only the picture, leaving results, stats and events alone.
+
+        Used by the live view, which shows the camera at its own rate between
+        analysed frames. It deliberately does not count as the pipeline
+        publishing: a camera whose analysis has hung must still read as
+        stalled, however smoothly its picture moves.
+        """
+        with self._frame_ready:
+            self._jpeg = jpeg
+            self._frame_seq += 1
+            self._frame_ready.notify_all()
+
     def stop(self) -> None:
         with self._frame_ready:
             self.running = False
+            self._frame_ready.notify_all()
+
+    def resume(self) -> None:
+        """Flip ``running`` back on after a module reload rebuilds the pipeline.
+
+        The pipeline's own shutdown always calls :meth:`stop` on its way out
+        (closing the output sink), including the brief stop-and-rebuild a
+        module change causes; this is what tells the dashboard the *next*
+        pipeline run has started without tearing down the server itself.
+        """
+        with self._frame_ready:
+            self.running = True
             self._frame_ready.notify_all()
 
     # ------------------------------------------------------------------ #
@@ -87,15 +121,57 @@ class DashboardState:
                 "event_count": self._event_seq,
             }
 
+    def seconds_since_publish(self) -> Optional[float]:
+        """Seconds since the pipeline last published, or None before the first."""
+        with self._lock:
+            if self._last_publish_at is None:
+                return None
+            return time.monotonic() - self._last_publish_at
+
     def latest_jpeg(self) -> Optional[bytes]:
         with self._lock:
+            self._snapshot_read_at = time.monotonic()
             return self._jpeg
 
+    def latest_frame(self) -> Tuple[Optional[bytes], int]:
+        """``(jpeg, seq)`` of the newest frame, without waiting."""
+        with self._lock:
+            self._stream_read_at = time.monotonic()
+            return self._jpeg, self._frame_seq
+
+    def viewer_demand(self) -> str:
+        """Who is looking at this camera's picture right now.
+
+        ``"stream"`` - a live stream is open; ``"snapshot"`` - only stills are
+        being fetched (a thumbnail); ``"idle"`` - nobody. Lets the live view
+        spend JPEG encoding where someone will actually see it.
+        """
+        now = time.monotonic()
+        with self._lock:
+            stream, snapshot = self._stream_read_at, self._snapshot_read_at
+        if stream is not None and now - stream < _STREAM_DEMAND_SEC:
+            return "stream"
+        if snapshot is not None and now - snapshot < _SNAPSHOT_DEMAND_SEC:
+            return "snapshot"
+        return "idle"
+
+    @property
+    def last_event_id(self) -> int:
+        """Id of the newest event ever published (0 before the first)."""
+        with self._lock:
+            return self._event_seq
+
     def events_since(self, since: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """Newest-first events with an id greater than ``since``."""
+        """Events with an id greater than ``since``, newest first.
+
+        When more than ``limit`` are newer, the page holds the *oldest*
+        ``limit`` of them, so a client that advances ``since`` to the highest
+        id it received pages forward through a burst. Returning the newest
+        page instead would make it skip the rest of the burst forever.
+        """
         with self._lock:
             newer = [e for e in self._events if e["id"] > since]
-        return list(reversed(newer))[:limit]
+        return list(reversed(newer[:limit]))
 
     def wait_for_frame(self, last_seq: int, timeout: float = 1.0):
         """Block until a frame newer than ``last_seq`` exists.

@@ -15,6 +15,13 @@ twice per frame. The second pass produces identical numbers at full cost.
 * **One inference.** Results are memoised for the frame currently being
   processed, so the second module through gets the first module's output.
 
+With several cameras in one process the same detector is shared by all of
+them. Two things keep that correct: inference is serialised (the underlying
+runtimes are not safe to call from several threads at once, and one CPU
+inference at a time is no slower than two interleaved), and the per-frame memo
+is kept per thread - each camera runs on its own thread, and a shared memo
+would be overwritten by the other camera between two modules of the same frame.
+
 Each module still filters the shared results down to the labels it owns, so
 they keep completely separate outputs. Sharing is an implementation detail
 below the module boundary - no module knows it is happening.
@@ -27,7 +34,7 @@ covers every class and modules filter by label afterwards, at no cost.
 from __future__ import annotations
 
 import threading
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -50,14 +57,49 @@ _IDENTITY_PARAMS = (
 )
 
 
+#: What a backend uses when a param is left out. Two modules must share when
+#: one spells a default out (``imgsz: 640``) and the other omits it - comparing
+#: the raw values treated those as different models, so the same weights were
+#: loaded twice and every frame was inferred twice.
+_IDENTITY_DEFAULTS: Dict[str, Any] = {
+    "device": "cpu",
+    "imgsz": 640,
+    "model_confidence": 0.25,
+    "iou": 0.45,
+    "half": False,
+    "classes": None,
+}
+
+
+def _normalise(name: str, value: Any) -> Any:
+    """One canonical form per identity param, so ``640`` and ``"640"`` agree."""
+    if value is None:
+        value = _IDENTITY_DEFAULTS.get(name)
+    if value is None:
+        return None
+    try:
+        if name == "device":
+            return str(value).strip().lower()
+        if name == "imgsz":
+            if isinstance(value, (list, tuple)):
+                return tuple(int(side) for side in value)
+            return int(value)
+        if name in ("model_confidence", "iou"):
+            return round(float(value), 6)
+        if name == "half":
+            return bool(value)
+        if name == "classes":
+            return tuple(int(c) for c in value) or None
+    except (TypeError, ValueError):
+        pass  # leave a malformed value as-is; the backend reports it on load
+    return tuple(value) if isinstance(value, list) else value
+
+
 def share_key(backend_name: str, params: Dict[str, Any]) -> Tuple[Any, ...]:
     """Identity of a model configuration, for deciding what can be shared."""
     values: List[Any] = [backend_name]
     for name in _IDENTITY_PARAMS:
-        value = params.get(name)
-        if isinstance(value, list):
-            value = tuple(value)
-        values.append(value)
+        values.append(_normalise(name, params.get(name)))
     return tuple(values)
 
 
@@ -70,14 +112,14 @@ class SharedDetector(DetectorBackend):
         super().__init__(inner.params)
         self._inner = inner
         self._lock = threading.Lock()
+        self._infer_lock = threading.Lock()
         self._users = 0
 
-        # Memo for the frame currently in flight. A strong reference to the
-        # frame is held deliberately: it makes the `is` identity check below
-        # sound, because the object cannot be collected (and its address
-        # reused by a different array) while it is cached.
-        self._cached_frame: Optional[np.ndarray] = None
-        self._cached_results: List[RawDetection] = []
+        # Memo for the frame currently in flight, one per calling thread. A
+        # strong reference to the frame is held deliberately: it makes the `is`
+        # identity check below sound, because the object cannot be collected
+        # (and its address reused by a different array) while it is cached.
+        self._memo = threading.local()
 
         self.inference_count = 0
         self.cache_hits = 0
@@ -123,23 +165,26 @@ class SharedDetector(DetectorBackend):
 
     def infer(self, frame: np.ndarray) -> List[RawDetection]:
         """Run the model, or return this frame's already-computed results."""
-        with self._lock:
-            if self._cached_frame is frame:
+        memo = self._memo
+        if getattr(memo, "frame", None) is frame:
+            with self._lock:
                 self.cache_hits += 1
-                return list(self._cached_results)
+            return list(memo.results)
 
-        results = self._inner.infer(frame)
+        with self._infer_lock:
+            results = self._inner.infer(frame)
 
+        memo.frame = frame
+        memo.results = list(results)
         with self._lock:
-            self._cached_frame = frame
-            self._cached_results = list(results)
             self.inference_count += 1
 
         return list(results)
 
     def _forget_frame(self) -> None:
-        self._cached_frame = None
-        self._cached_results = []
+        # Other threads' memos cannot be reached from here; replacing the
+        # holder makes every thread start from an empty memo.
+        self._memo = threading.local()
 
     # ------------------------------------------------------------------ #
     # Introspection
