@@ -56,13 +56,34 @@ class LabelFilteredDetectionModule(BaseAIModule):
           imgsz: 640
           confidence_threshold: 0.4
           min_box_area: 0
+          candidate_threshold: 0.25  # optional, see below
           labels: [...]        # override the reported classes
+          exclude_labels: [...] # classes never reported (after `labels`)
+          dedupe_iou: 0.7      # one box per place across classes; 0 = off
           share_model: true    # reuse a matching model across modules
 
     Class selection is done here, by label, rather than by restricting the
     model to class ids. Measured, restricting a YOLO model to specific classes
     saves nothing (+0.2%, within noise) because the filter runs after NMS - and
     filtering here instead lets several modules share one inference.
+
+    ``exclude_labels`` exists for the general-purpose detector: with no
+    ``labels`` it reports everything, people and vehicles included, so
+    running it beside ``person_detection`` puts two boxes (and two track ids)
+    on every person. Excluding ``person`` there leaves one.
+
+    ``dedupe_iou`` handles the other kind of duplicate. The model's own NMS
+    works per class, so one pile of clutter can come back as a "suitcase"
+    *and* a "chair" in the same place; with this set, boxes of different
+    classes overlapping at least that much are reduced to the more confident
+    one.
+
+    ``candidate_threshold`` (off unless set) additionally hands boxes scoring
+    between it and ``confidence_threshold`` to the tracker as *candidates*.
+    They are not detections - nothing reports, draws or counts them - but a
+    tracker may use one to continue an identity it already has. The backend
+    itself drops everything below ``model_confidence`` (default 0.25), so a
+    lower value here has no effect unless that is lowered too.
     """
 
     module_type: ClassVar[ModuleType] = ModuleType.DETECTION
@@ -87,8 +108,17 @@ class LabelFilteredDetectionModule(BaseAIModule):
             if configured
             else tuple(self.default_labels)
         )
+        self._exclude: frozenset[str] = frozenset(
+            str(label) for label in (self.params.get("exclude_labels") or ())
+        )
+        self._dedupe_iou = float(self.params.get("dedupe_iou", 0.0) or 0.0)
         self._min_confidence = float(self.params.get("confidence_threshold", 0.40))
         self._min_box_area = float(self.params.get("min_box_area", 0.0))
+
+        candidate = self.params.get("candidate_threshold")
+        self._candidate_confidence: float | None = (
+            float(candidate) if candidate is not None else None
+        )
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -96,6 +126,15 @@ class LabelFilteredDetectionModule(BaseAIModule):
 
     def initialize(self) -> None:
         model = self.params.get("model")
+
+        if self._candidate_confidence is not None and not (
+            0.0 <= self._candidate_confidence < self._min_confidence
+        ):
+            raise ModuleInitializationError(
+                f"{self.module_name}.candidate_threshold "
+                f"({self._candidate_confidence}) must be >= 0 and below "
+                f"confidence_threshold ({self._min_confidence})"
+            )
 
         if self.requires_own_model and not model:
             raise ModuleInitializationError(self._missing_model_message())
@@ -146,8 +185,15 @@ class LabelFilteredDetectionModule(BaseAIModule):
                 f"{type(self).__name__}.process() called before initialize()"
             )
 
-        detections = self._filter(self._backend.infer(context.frame), context)
+        raw = self._backend.infer(context.frame)
+        detections = self._filter(raw, context)
         context.add_detections(self.module_name, detections)
+
+        if self._candidate_confidence is not None:
+            context.add_candidates(
+                self.module_name,
+                self._filter(raw, context, self._candidate_confidence, self._min_confidence),
+            )
 
         return self.make_result(
             context,
@@ -166,15 +212,29 @@ class LabelFilteredDetectionModule(BaseAIModule):
         return {"count": len(detections), "by_class": counts}
 
     def _filter(
-        self, raw_detections: Iterable[RawDetection], context: FrameContext
+        self,
+        raw_detections: Iterable[RawDetection],
+        context: FrameContext,
+        min_confidence: float | None = None,
+        below: float | None = None,
     ) -> List[Detection]:
-        """Apply this module's class, confidence and size rules."""
+        """Apply this module's class, confidence and size rules.
+
+        With the defaults this is the module's reported output. Passing
+        ``min_confidence``/``below`` selects a different score band with the
+        same class and size rules - used for tracker candidates.
+        """
+        floor = self._min_confidence if min_confidence is None else min_confidence
         detections: List[Detection] = []
 
         for raw in raw_detections:
             if self._labels and raw.label not in self._labels:
                 continue
-            if raw.confidence < self._min_confidence:
+            if raw.label in self._exclude:
+                continue
+            if raw.confidence < floor:
+                continue
+            if below is not None and raw.confidence >= below:
                 continue
 
             bbox = BBox.from_xyxy(raw.xyxy).clip(context.width, context.height)
@@ -194,4 +254,23 @@ class LabelFilteredDetectionModule(BaseAIModule):
             )
 
         detections.sort(key=lambda det: det.confidence, reverse=True)
+        if self._dedupe_iou > 0:
+            detections = self._dedupe(detections)
         return detections
+
+    def _dedupe(self, detections: List[Detection]) -> List[Detection]:
+        """Keep the most confident of differently-labelled boxes on one spot.
+
+        Same-label overlaps are left alone: the model's NMS already decided
+        those are two objects (two people standing close).
+        """
+        kept: List[Detection] = []
+        for detection in detections:  # most confident first
+            if any(
+                other.label != detection.label
+                and other.bbox.iou(detection.bbox) >= self._dedupe_iou
+                for other in kept
+            ):
+                continue
+            kept.append(detection)
+        return kept

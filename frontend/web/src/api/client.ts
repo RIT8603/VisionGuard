@@ -87,3 +87,75 @@ export async function getJson<T>(
     signal?.removeEventListener('abort', cancel);
   }
 }
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * POST a JSON body and verify the response shape.
+ *
+ * The only endpoint that needs this today, `/api/modules`, answers a
+ * rejected request with `{"error": "<reason>"}` rather than an empty body,
+ * so a non-2xx response's message is taken from there when present.
+ */
+export async function postJson<T>(
+  path: string,
+  body: unknown,
+  isValid: (value: unknown) => value is T,
+  { signal, timeoutMs = REQUEST_TIMEOUT_MS }: RequestOptions = {},
+): Promise<T> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const cancel = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  signal?.addEventListener('abort', cancel, { once: true });
+
+  const fail = (error: unknown, kind: ApiErrorKind, message: string): never => {
+    if (signal?.aborted) throw error;
+    if (timedOut) throw new ApiError('timeout', `No response from ${path} within ${timeoutMs} ms`);
+    throw new ApiError(kind, message);
+  };
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(path, {
+        method: 'POST',
+        signal: controller.signal,
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      return fail(error, 'network', `Could not reach ${path}`);
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = await response.json();
+    } catch (error) {
+      if (!response.ok) {
+        throw new ApiError('http', `${path} returned HTTP ${response.status}`, response.status);
+      }
+      return fail(error, 'parse', `${path} returned a body that is not JSON`);
+    }
+
+    if (!response.ok) {
+      const detail = isPlainObject(parsed) && typeof parsed.error === 'string' ? parsed.error : undefined;
+      throw new ApiError('http', detail ?? `${path} returned HTTP ${response.status}`, response.status);
+    }
+
+    if (!isValid(parsed)) {
+      throw new ApiError('shape', `${path} returned an unexpected response shape`);
+    }
+    return parsed;
+  } finally {
+    window.clearTimeout(timer);
+    signal?.removeEventListener('abort', cancel);
+  }
+}

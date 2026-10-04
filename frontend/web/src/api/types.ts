@@ -27,6 +27,10 @@ export interface RunInfo {
   source_type: SourceType;
   /** "webcam-0", "file-<stem>", "rtsp-0" or a configured id. */
   source_id: string;
+  /** Which camera this status describes (the camera id; equals source_id). */
+  camera_id?: string;
+  /** The camera's display name. */
+  camera_name?: string;
   /** Display text such as "960px wide" or "native" - not dimensions. */
   resolution: string;
   /** Captured once at startup; a module disabled mid-run stays listed. */
@@ -86,7 +90,21 @@ export type KnownEventType =
   | 'fall_recovered'
   | 'attendance_check_in'
   | 'attendance_check_out'
-  | 'unknown_person';
+  | 'unknown_person'
+  | 'loitering'
+  | 'intrusion'
+  | 'tailgating'
+  | 'line_crossed'
+  | 'abandoned_object'
+  | 'abandoned_object_removed'
+  | 'inventory_low'
+  | 'inventory_high'
+  | 'inventory_restored'
+  | 'low_light_started'
+  | 'low_light_ended'
+  | 'weapon_detected'
+  | 'plate_read'
+  | 'person_reidentified';
 
 /** Keys observed in the current analysis modules; any module may add others. */
 export interface EventSubject {
@@ -167,4 +185,60 @@ export interface StatusResponse {
 export interface EventsResponse {
   /** Newest first. */
   events: FeedEvent[];
+}
+
+/** Response to POST /api/modules. Acceptance only - the pipeline restarts
+ * in the background; poll /api/status to see when it has caught up. */
+export interface SetModulesResponse {
+  status: string;
+  enabled: string[];
+}
+
+/** What a camera is doing right now, as reported by GET /api/cameras. */
+export type CameraStatus = 'starting' | 'live' | 'stalled' | 'offline' | 'failed';
+
+/** One camera as GET /api/cameras describes it. Credentials in `rtsp_url` are masked (`***`). */
+export interface CameraInfo {
+  id: string;
+  name: string;
+  source: SourceType;
+  status: CameraStatus;
+  /** Why the camera failed, when status is "failed". */
+  error: string | null;
+  fps: number | null;
+  resolution: { width: number; height: number } | null;
+  /** Highest event id issued by this camera so far. */
+  event_count: number;
+  device_id?: number;
+  rtsp_url?: string | null;
+  path?: string | null;
+  loop?: boolean;
+}
+
+export interface CamerasResponse {
+  cameras: CameraInfo[];
+  /** The most cameras one run may drive (dashboard.max_cameras). */
+  max_cameras: number;
+  /** False when the backend refuses camera changes. */
+  editable: boolean;
+  /** Why the last requested change could not be applied, if it could not. */
+  apply_error: string | null;
+}
+
+/** One camera in a POST /api/cameras body. Send only the field its source uses. */
+export interface CameraInput {
+  /** Keep the existing id to keep the camera's history; omit it for a new camera. */
+  id?: string;
+  name?: string;
+  source: SourceType;
+  rtsp_url?: string;
+  device_id?: number;
+  path?: string;
+  loop?: boolean;
+}
+
+/** Response to POST /api/cameras. Acceptance only - cameras restart in the background. */
+export interface SetCamerasResponse {
+  status: string;
+  cameras: CameraInfo[];
 }

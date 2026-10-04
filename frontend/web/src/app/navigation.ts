@@ -19,5 +19,6 @@ export const PUBLIC_NAV: readonly NavItem[] = [
 
 export const PORTAL_NAV: readonly NavItem[] = [
   { label: 'Dashboard', to: PATHS.portal.dashboard },
+  { label: 'Cameras', to: PATHS.portal.cameras },
   { label: 'Modules', to: PATHS.portal.modules },
 ];

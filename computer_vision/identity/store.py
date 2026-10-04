@@ -24,6 +24,7 @@ exists because someone enrolled it deliberately.
 
 from __future__ import annotations
 
+import os
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -42,6 +43,43 @@ STORE_VERSION = 1
 
 class IdentityStoreError(Exception):
     """The identity store is missing, malformed or incompatible."""
+
+
+def _restrict_permissions(path: Path) -> None:
+    """Owner-only read/write: the store holds biometric templates.
+
+    Best effort - on Windows ``chmod`` only affects the read-only bit, so the
+    folder's ACLs remain the real control there.
+    """
+    try:
+        os.chmod(path, 0o600)
+    except OSError:  # pragma: no cover - filesystem dependent
+        logger.debug("Could not restrict permissions on %s", path)
+
+
+def _validate_loaded(
+    source: Path, names: List[str], enrolled: List[str], embeddings: np.ndarray
+) -> None:
+    """Reject a store whose arrays do not describe the same samples."""
+    count = len(names)
+    if len(enrolled) != count:
+        raise IdentityStoreError(
+            f"Identity store {source} is malformed: {count} names but "
+            f"{len(enrolled)} enrolment timestamps."
+        )
+    if count == 0:
+        return
+    if embeddings.ndim != 2 or embeddings.shape[0] != count or embeddings.shape[1] == 0:
+        raise IdentityStoreError(
+            f"Identity store {source} is malformed: {count} names but "
+            f"embeddings of shape {tuple(embeddings.shape)}."
+        )
+    if not np.all(np.isfinite(embeddings)):
+        raise IdentityStoreError(
+            f"Identity store {source} contains NaN or infinite embeddings."
+        )
+    if any(not name.strip() for name in names):
+        raise IdentityStoreError(f"Identity store {source} contains an empty identity name.")
 
 
 @dataclass
@@ -217,13 +255,27 @@ class IdentityStore:
         # Unicode arrays, not dtype=object: object arrays would force
         # allow_pickle=True on load, which turns a store file into arbitrary
         # code execution. Nothing here needs pickle.
-        np.savez_compressed(
-            target,
-            version=np.array([STORE_VERSION], dtype=np.int32),
-            names=np.array(names, dtype=np.str_),
-            enrolled_at=np.array(enrolled, dtype=np.str_),
-            embeddings=stacked,
-        )
+        # Written to a temporary file and moved into place, so a crash or a
+        # full disk mid-write can never leave a truncated store behind. Writing
+        # through a file handle also stops NumPy appending ".npz" to a path
+        # without that suffix, which made load(path) miss the saved file.
+        tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+        try:
+            with open(tmp, "wb") as handle:
+                np.savez_compressed(
+                    handle,
+                    version=np.array([STORE_VERSION], dtype=np.int32),
+                    names=np.array(names, dtype=np.str_),
+                    enrolled_at=np.array(enrolled, dtype=np.str_),
+                    embeddings=stacked,
+                )
+                handle.flush()
+                os.fsync(handle.fileno())
+            _restrict_permissions(tmp)
+            os.replace(tmp, target)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
         logger.info(
             "Saved %d identities (%d samples) to %s",
             len(self),
@@ -260,6 +312,8 @@ class IdentityStore:
             raise
         except Exception as exc:  # noqa: BLE001 - surfaced with context
             raise IdentityStoreError(f"Could not read {source}: {exc}") from exc
+
+        _validate_loaded(source, names, enrolled, embeddings)
 
         store = cls(threshold=threshold)
         for index, name in enumerate(names):

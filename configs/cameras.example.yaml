@@ -1,0 +1,34 @@
+# Camera list for a multi-camera VisionGuard run.
+#
+# Copy this to configs/cameras.yaml (git-ignored) and edit it - or leave the
+# file out and set the cameras up from the dashboard's Cameras page, which
+# writes configs/cameras.yaml for you. See "Multiple cameras" in the README.
+#
+# Without a cameras.yaml, VisionGuard runs the single camera in the video:
+# section of config.yaml, exactly as before. A camera given on the command
+# line (--rtsp-url, --source, --video-path, --device-id) runs alone and
+# ignores this file.
+#
+# Capture size, RTSP transport, timeouts and reconnect settings come from the
+# video: section of config.yaml and apply to every camera. All cameras use the
+# same modules.
+
+cameras:
+  # id:   1-32 characters: lower-case letters, digits, '-' and '_'. Stable: it
+  #       names the camera in the dashboard and the API, and is stamped on every
+  #       frame and event as the source id. Omit it and one is generated.
+  # name: what the dashboard shows. Defaults to the id.
+  - id: gate
+    name: Main gate
+    source: rtsp                       # rtsp://, or rtsps://, only
+    rtsp_url: rtsp://user:password@192.168.1.10:554/stream1
+
+  - id: lab
+    name: Lab webcam
+    source: webcam
+    device_id: 0                       # each webcam can be used once
+
+  - id: demo
+    source: file
+    path: data/campus.mp4
+    loop: true                         # start again when the video ends

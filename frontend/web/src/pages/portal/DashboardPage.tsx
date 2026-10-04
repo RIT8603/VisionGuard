@@ -1,3 +1,4 @@
+import { CameraStrip } from '../../components/pipeline/CameraStrip';
 import { EventFeed } from '../../components/pipeline/EventFeed';
 import { FrameResults } from '../../components/pipeline/FrameResults';
 import { LiveStream } from '../../components/pipeline/LiveStream';
@@ -7,8 +8,11 @@ import { StatusPanel } from '../../components/pipeline/StatusPanel';
 import { usePipeline } from '../../state/PipelineProvider';
 
 export function DashboardPage() {
-  const { status, feed, visible, reachable, frame, stats } = usePipeline();
+  const { status, feed, visible, reachable, frame, stats, cameras, camera, cameraParam, selectCamera } =
+    usePipeline();
   const { data } = status;
+  const cameraList = cameras.data?.cameras ?? [];
+  const selectedCamera = cameraList.find((c) => c.id === camera);
 
   // Header, navigation and connection notice come from PortalLayout.
   return (
@@ -18,6 +22,15 @@ export function DashboardPage() {
       {/* DOM order is the mobile reading order: feed, telemetry, frame,
           source, modules, events. Wider screens rearrange it in CSS.
           Last known values stay on screen, dimmed, while the backend is away. */}
+      {cameraList.length > 1 && (
+        <CameraStrip
+          cameras={cameraList}
+          selected={camera}
+          onSelect={selectCamera}
+          active={visible}
+        />
+      )}
+
       <div className={`layout${reachable ? '' : ' is-dimmed'}`}>
         <div className="column column-main">
           <LiveStream
@@ -25,7 +38,8 @@ export function DashboardPage() {
             active={visible}
             restartCount={status.restartCount}
             resolution={frame?.resolution}
-            sourceLabel={data?.info.source_id}
+            sourceLabel={selectedCamera?.name ?? data?.info.source_id}
+            camera={cameraParam}
           />
           <StatsPanel stats={stats} eventCount={data?.event_count ?? null} />
           <FrameResults frame={frame} />

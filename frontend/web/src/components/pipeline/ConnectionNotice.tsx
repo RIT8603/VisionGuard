@@ -30,8 +30,9 @@ export function ConnectionNotice({ status }: { status: PipelineStatus }) {
     case 'stopped':
       return (
         <Notice tone="warn" word="Stopped">
-          <strong>Pipeline stopped.</strong> The backend exits when its pipeline ends (video finished,
-          camera lost, or Ctrl+C). Restart it to continue.
+          <strong>This camera's pipeline stopped</strong> (video finished, camera lost, or Ctrl+C). With
+          one camera the backend exits when that happens, so restart it to continue. With several, the
+          others keep running: pick another camera above, or fix this one on the Cameras page.
         </Notice>
       );
     case 'stale':

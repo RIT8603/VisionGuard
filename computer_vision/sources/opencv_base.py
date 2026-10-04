@@ -150,9 +150,15 @@ class OpenCVVideoSource(BaseVideoSource):
             raise SourceOpenError(self._open_failure_message(target, backend))
 
         self._capture = capture
-        self._configure_capture(capture)
-
-        self._info = self._read_info(capture, backend)
+        try:
+            self._configure_capture(capture)
+            self._info = self._read_info(capture, backend)
+        except Exception:
+            # e.g. a start_frame past the end of a file: never leave an opened
+            # device/stream behind a source that reports itself closed.
+            capture.release()
+            self._capture = None
+            raise
         self._is_open = True
 
         logger.info(
@@ -186,7 +192,7 @@ class OpenCVVideoSource(BaseVideoSource):
             if not self._handle_read_failure(attempt):
                 raise FrameReadError(
                     f"{type(self).__name__} failed to read a frame after "
-                    f"{attempt + 1} attempt(s) from {self._capture_target()!r}"
+                    f"{attempt + 1} attempt(s) from {self._loggable_target()}"
                 )
             attempt += 1
 

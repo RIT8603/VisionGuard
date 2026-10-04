@@ -19,7 +19,7 @@ Camera Source -> Video Source Abstraction -> OpenCV Vision Core
 
 Development workflow: **[docs/WORKFLOW.md](docs/WORKFLOW.md)**
 
-**All three video sources and eleven AI modules are implemented**, and the
+**All three video sources and twenty-six AI modules are implemented**, and the
 platform now produces **events**, not just detections:
 
 ```
@@ -67,8 +67,38 @@ Webcam / Video file / RTSP camera
 | `ppe_detection` | detection | — | needs custom weights |
 | `fire_detection` | detection | — | needs custom weights |
 | `smoke_detection` | detection | — | needs custom weights |
+| `weapon_detection` | detection | — | working for knife / bat / scissors (COCO); guns need custom weights |
+| `low_light` | analysis | — | working (emits events; optional frame brightening) |
+| `loitering` | analysis | any tracking module | working (emits events) |
+| `intrusion_detection` | analysis | any tracking module | working (emits events; time-of-day rule) |
+| `tailgating` | analysis | any tracking module | working (emits events; also counts in/out) |
+| `abandoned_object` | analysis | `object_tracking`, `person_detection` | working (emits events) |
+| `inventory_monitoring` | analysis | `object_detection` | working (emits events) |
+| `number_plate_recognition` | recognition | `vehicle_tracking` | working; needs `openvino` and a plate ≥ ~80 px wide |
+| `person_reid` | recognition | `person_tracking` | needs a model file (107 MB) and `openvino` |
 
-Still to build: `ppe_violation` (blocked on PPE weights), loitering, intrusion.
+Still to build: `ppe_violation` (blocked on PPE weights), and action
+recognition (fighting, theft) - `intrusion_detection` covers only what place
+and time can decide.
+
+What the newer modules can and cannot do, measured rather than assumed:
+
+- **`number_plate_recognition`** reads from the original capture, not the
+  resized frame, and reproduces the reference library's result exactly on a
+  sample image (`5AU5341`). It only reads plates at least `min_plate_width`
+  pixels wide; on a wide street view (plates ~26 px) it boxes plates and
+  reads none, by design.
+- **`person_reid`** put the right identity first for 68% of 62 people on one
+  camera's footage. At the default threshold 0.6 it re-identified 77% and
+  wrongly matched about 1% of different-person pairs. Cross-camera accuracy
+  was not measured.
+- **`low_light` brightening** (`enhance`) is off by default: on footage
+  darkened in software the detector found more people on the raw dark frame
+  than on the brightened one in every case tried.
+- **`weapon_detection`** has no gun class with the stock model.
+- Time-based rules (`loitering`, `tailgating`, `abandoned_object`,
+  `intrusion_detection`) use capture time. On a file played faster than real
+  time (`playback_speed: 0`) their seconds do not match the video's.
 
 Measured with seven modules enabled at once (three detectors sharing one
 model, three trackers, one analysis), 640px webcam on CPU:
@@ -105,7 +135,9 @@ On macOS/Linux use `.venv/bin/python` instead of `.venv/Scripts/python.exe`.
 This installs `ultralytics`, which pulls in torch and torchvision — about
 **1.2 GB on disk and ~2 minutes**. It is needed only for person detection; see
 [Detection backend](#detection-backend) if you want to avoid it. The model
-weights (`yolo11n.pt`, ~5 MB) download automatically on first run.
+weights (`yolo11n.pt`, ~5 MB) are not downloaded implicitly: put them in
+`computer_vision/Model/detection/`, or set `allow_download: true` once (see
+`computer_vision/Model/README.md`). Their SHA-256 is verified before loading.
 
 Optional: `cp .env.example .env` and edit it.
 
@@ -285,7 +317,7 @@ VisionGuard/
 │
 ├── backend/                API + ORCHESTRATION - connects the engine to the UI
 │   ├── main.py             CLI entry point
-│   ├── api/server.py       read-only HTTP API + MJPEG stream
+│   ├── api/server.py       HTTP API + MJPEG stream (two narrow writes)
 │   └── services/           dashboard state, the sink that feeds it
 │
 ├── frontend/               USER INTERFACE
@@ -361,7 +393,7 @@ CLI flags ───────────┘                            │
 | [computer_vision/core/pipeline.py](computer_vision/core/pipeline.py) | The Vision Core loop. Names no module and no model. |
 | [computer_vision/core/frame_processor.py](computer_vision/core/frame_processor.py) | Mirror + resize, once, to a single pipeline resolution. |
 | [computer_vision/core/output.py](computer_vision/core/output.py) | Output sinks: window, headless, web, and `MultiSink`. |
-| [backend/api/server.py](backend/api/server.py) | Read-only HTTP API and MJPEG stream. |
+| [backend/api/server.py](backend/api/server.py) | HTTP API and MJPEG stream; writes only the module and camera lists. |
 | [backend/services/state.py](backend/services/state.py) | Thread-safe handoff from pipeline to server. |
 | [computer_vision/sources/base.py](computer_vision/sources/base.py) | The source contract. Imports no OpenCV. |
 | [computer_vision/sources/opencv_base.py](computer_vision/sources/opencv_base.py) | Shared `cv2.VideoCapture` plumbing. |
@@ -422,7 +454,7 @@ and display.
 ```yaml
 pose_detection:
   enabled: true
-  model: yolo11n-pose.pt     # downloaded on first use
+  model: yolo11n-pose.pt     # must exist locally (allow_download: true to fetch once)
   confidence_threshold: 0.4
   keypoint_threshold: 0.3
 
@@ -635,21 +667,41 @@ feed with severity colouring.
 ```yaml
 dashboard:
   enabled: false
-  host: "127.0.0.1"   # NO AUTHENTICATION - see below
+  host: "127.0.0.1"   # localhost only; a network bind always needs a token
   port: 8080
   stream_fps: 15.0    # caps JPEG encoding only; analysis runs at full rate
   jpeg_quality: 75
   max_events: 200
+  max_streams: 4      # concurrent live-video viewers; extra ones get 503
+  allowed_hosts: []   # extra Host names/IPs accepted (DNS-rebinding guard)
+  # auth_token: set VISIONGUARD_DASHBOARD_TOKEN in .env, never here
 ```
 
-**It is read-only.** It observes the pipeline and cannot reconfigure or stop
-it — there is no endpoint that mutates anything, and a test asserts that. A
-browser tab must not be able to disturb a running camera.
+**Two writes, both narrow.** The dashboard mostly observes. It has exactly two
+endpoints that change anything: `POST /api/modules` (turn modules on or off,
+by name, from the catalogue the platform already knows) and `POST /api/cameras`
+(replace the camera list - see *Multiple cameras* below). Neither can change a
+module's settings, and a camera entry is validated to be a webcam index, a local
+video file or an `rtsp://` URL; nothing else is ever opened. Both sit behind the
+same access control as the video, and `dashboard.allow_camera_edit: false`
+freezes the camera list.
 
-**It has no authentication.** It therefore binds to `127.0.0.1` by default. If
-you set `host: 0.0.0.0` it is reachable by anyone on the network, including
-the live camera feed; a warning is logged when you do. Put it behind a reverse
-proxy with auth before exposing it.
+**Access control.** Read-only is not harmless - the stream is a live camera.
+
+- On `127.0.0.1` (the default) no token is needed, but every request's `Host`
+  header must be `localhost`, `127.0.0.1` or `::1` (plus `allowed_hosts`).
+  That blocks DNS-rebinding, where a web page you visit tries to read the
+  local dashboard.
+- On a network address (`host: 0.0.0.0` or a LAN IP) a token is **always**
+  required. Set `VISIONGUARD_DASHBOARD_TOKEN` (16+ characters) in `.env`, or
+  leave it unset and a random token is generated for the run and printed once
+  to the console (not the log file) as a ready-to-open URL.
+- The browser passes the token once as `?token=...`; the server swaps it for
+  an `HttpOnly; SameSite=Strict` cookie and the page removes it from the
+  address bar. Scripts can send `Authorization: Bearer <token>`.
+- Plain HTTP: on an untrusted network, put it behind a TLS reverse proxy.
+- A busy port is reported at startup (`[dashboard error] Could not bind ...`)
+  instead of the run continuing without a dashboard.
 
 Implementation notes:
 
@@ -660,7 +712,8 @@ Implementation notes:
 - `MultiSink` fans frames to several sinks, so the preview window and the
   dashboard can run together.
 - Video is MJPEG: a browser renders it with a plain `<img>`, there is no
-  client-side buffer to drift behind, and it needs no JavaScript.
+  client-side buffer to drift behind, and it needs no JavaScript. The stream
+  is served asynchronously, so open viewers never tie up worker threads.
 - Only the latest frame is kept. Queueing would drift further behind the
   longer it ran — the same reasoning as RTSP stale-frame dropping.
 - `stream_fps` throttles **encoding only**. Results and events are published
@@ -669,9 +722,63 @@ Implementation notes:
 Measured with detection, tracking and zone analysis running: ~29 FPS with the
 dashboard streaming.
 
-Not included: camera management, module selection and config editing from the
-browser. Those need the pipeline to be reconfigurable at runtime, which is a
-larger change than a read-only view.
+### Multiple cameras
+
+One process can watch several cameras at once. Each camera is a complete,
+independent pipeline: its own video source and its own module instances, so
+trackers, zones and dwell timers never mix between cameras. The detector models
+are shared (one load, one inference at a time), so ten cameras do not mean ten
+copies of YOLO in memory - they mean each camera gets a slower frame rate.
+
+Set the cameras up from the web UI (**Cameras** page: type how many, fill in
+one form per camera, Apply) or by hand in `configs/cameras.yaml`
+(see `configs/cameras.example.yaml`):
+
+```yaml
+cameras:
+  - id: gate
+    name: Main gate
+    source: rtsp
+    rtsp_url: rtsp://user:password@192.168.1.10:554/stream1
+  - id: lab
+    source: webcam
+    device_id: 0
+  - id: demo
+    source: file
+    path: data/campus.mp4
+    loop: true
+```
+
+- **Where it is stored.** `configs/cameras.yaml`, not `config.yaml`: an RTSP URL
+  usually holds a password and `config.yaml` is meant to be committed. The file
+  is git-ignored and written owner-only where the OS supports it. The API and the
+  UI only ever show the password as `***`; leave that as it is to keep it.
+- **Which one wins.** A camera named on the command line (`--rtsp-url`,
+  `--source`, `--video-path`, `--device-id`) runs alone, as it always did, and
+  `cameras.yaml` is ignored for that run. Otherwise `cameras.yaml`, otherwise the
+  `video:` section.
+- **Shared settings.** Capture size, RTSP transport, timeouts and the reconnect
+  budget come from the `video:` section for every camera. All cameras use the
+  same modules and the same module settings - including zones and lines, which
+  are in image coordinates, so a zone drawn for one camera applies to all.
+- **One bad camera does not stop the others.** An unreachable stream or a pulled
+  USB cable marks only that camera *failed* (with the reason, password masked);
+  the rest keep running. With several cameras the program stays up so you can fix
+  it from the page.
+- **Applying a change restarts every camera** for a few seconds, like a module
+  change. A list that cannot be started leaves the previous setup running and
+  the reason is shown on the Cameras page.
+- **Limits.** `dashboard.max_cameras` (default 8, at most 32). The real limit is
+  your CPU. No preview window with several cameras - the dashboard is the view.
+  The dashboard shows one live video at a time plus a thumbnail per camera; a
+  browser allows only about six connections per host, so one video stream per
+  camera would starve the rest of the page.
+- **API.** The read endpoints (`/api/status`, `/api/events`, `/api/snapshot.jpg`,
+  `/stream.mjpg`) take `?camera=<id>` and answer for the first camera without it,
+  so existing clients keep working. `GET /api/cameras` lists every camera with its
+  status; `POST /api/cameras` replaces the list.
+
+Not included: editing module settings or zones from the browser.
 
 ---
 
@@ -806,8 +913,12 @@ RTSP_URL=rtsp://user:password@192.168.1.64:554/Streaming/Channels/101
 ```
 
 ```bash
-.venv/Scripts/python.exe -m backend.main --rtsp-url "rtsp://user:pass@192.168.1.64:554/Streaming/Channels/101"
+.venv/Scripts/python.exe -m backend.main --source rtsp
 ```
+
+`--rtsp-url` also works, but a password on the command line is visible in the
+process list and saved in shell history (VisionGuard warns when it sees one);
+prefer `RTSP_URL` in `.env`.
 
 An RTSP stream fails in ways a webcam and a file never do, so three things are
 handled explicitly:
@@ -913,6 +1024,28 @@ only in which detector they consume:
 | `object_tracking` | `object_detection` (multi-class) |
 | `vehicle_tracking` | `vehicle_detection` |
 
+**Low frame rates.** Association is by overlap with where a track is
+*predicted* to be (its last box moved along its velocity), not with where it
+last was; on a street clip that halved identity switches at 5 fps (119 to 65)
+and at 2 fps (249 to 135). Below about 6 fps `max_center_distance` adds a
+second chance for a detection that overlaps nothing: the nearest track of
+similar size within that many box-sizes (2 fps: 106 to 41 switches; 1 fps:
+136 to 88). It is not used at higher rates, where it made no useful
+difference. None of this replaces frame rate: tracking accuracy (MOTA) on
+that clip was 0.61 at 10 fps and 0.42 at 1 fps with everything on.
+
+Motion is measured per second, from each frame's capture time, not per
+frame: with several cameras taking turns at the model the gaps between
+frames are uneven, and counting frames then predicts the wrong place. On the
+same clip with gaps varying between 0.3 and 1.0 s that removed a quarter of
+the identity switches (73 to 56).
+
+`compact_ids: true` gives a track its number when it is confirmed rather than
+on first sighting, so ids count things that were reported. Every track also
+carries `extra.travel` - how far it has moved from where it first appeared,
+in units of its own size - which `restricted_zone.min_travel` uses to ignore
+whatever has never moved.
+
 **Id spaces are per-module.** With person and vehicle tracking both enabled
 there is a `#1` person *and* a `#1` vehicle — different things, different
 namespaces, no collision. Box colours mix the module name into the palette so
@@ -974,6 +1107,24 @@ person_detection:
   backend: ultralytics
   model: yolo11n.pt
 ```
+
+Two backends exist:
+
+| `backend` | Runs | Process memory | Start-up |
+|---|---|---|---|
+| `openvino` (default config) | an OpenVINO export, directly | 243 MB | 1.1 s |
+| `ultralytics` | `.pt` weights, and exports too | 923 MB | 4.3 s |
+
+`openvino` ([openvino_backend.py](computer_vision/inference/openvino_backend.py))
+imports neither `ultralytics` nor `torch`. It letterboxes the frame, runs the
+network and does the per-class NMS itself, and was checked against the
+Ultralytics backend on 90 frames of three clips: 1632 of 1632 boxes identical.
+With two RTSP cameras the whole backend process measured 408 MB against
+1088 MB. `device: intel:gpu` runs it on Intel integrated graphics; a device
+that is not present falls back to the CPU with a warning.
+
+Detectors share one inference only when `backend`, `model`, `device` and
+`imgsz` all agree, so keep the four identical on every detector.
 
 **Licensing:** `ultralytics` and its pretrained weights are **AGPL-3.0**. That
 is fine for development and for open-sourced deployments, but it carries
@@ -1046,6 +1197,41 @@ frame. For a fast start at a lower frame rate:
 video:
   backend: dshow
 ```
+
+**The dashboard shows a slow `person_detection` and fast everything else.**
+That is one inference, not a slow module. Detectors with the same model share
+a single inference per frame, and its whole cost is recorded against whichever
+of them runs first; the others read the result in a fraction of a millisecond.
+With several cameras the figure also includes waiting for the other cameras'
+inferences, which run one at a time.
+
+**Detection takes hundreds of milliseconds per frame.** The default model
+measures about 50 ms per frame on an idle 2-core server CPU, so a figure many
+times that is the machine, not the model. Measure the detector by itself:
+
+```bash
+python -m tools.diagnose_speed --cameras 2
+```
+
+It reports free memory, what is using the CPU, and the time per frame for
+each model on the CPU and on the integrated GPU. The usual causes, in order:
+another program using the CPU (a video encoder re-encoding test streams -
+publish them with `-c copy`), too little free memory, and decoding
+high-bitrate 1080p streams when a 720p or sub-stream would do. Reproduced
+here by loading a 2-core machine with six busy processes: per-frame time went
+from 170 ms to 960 ms and the rate from 5.6 to 1.0 fps, with no change to
+VisionGuard.
+
+Slow detection no longer freezes the video (`dashboard.live_view`): in that
+same test the picture stayed at 12.6 fps with a longest pause of 0.3 s,
+against 1.0 fps and 1.6 s without it.
+
+Boxes are drawn where things were on the frame shown: the picture runs about
+one and a half analysis intervals behind the camera (at most 3 s), and each
+box is placed between its two measured positions (`dashboard.live_view_sync`).
+Set it to `false` for the newest frame with boxes moved along their velocity
+instead - no delay, but at a low analysis rate they visibly miss (overlap
+with the target 0.72 at 5 fps, 0.56 at 2 fps, 0.40 at 1 fps).
 
 **Low FPS.** Measure the source first:
 

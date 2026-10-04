@@ -11,6 +11,12 @@ database. Those are downstream concerns.
 Planned contents (see ROADMAP.md, Phase 9):
 
     zone.py           -> RestrictedZoneModule   (implemented)
+    loitering.py      -> LoiteringModule        (implemented)
+    intrusion.py      -> IntrusionDetectionModule (implemented)
+    tailgating.py     -> TailgatingModule       (implemented)
+    abandoned_object.py -> AbandonedObjectModule (implemented)
+    inventory.py      -> InventoryMonitoringModule (implemented)
+    low_light.py      -> LowLightModule         (implemented)
     ppe_violation.py  -> PPEViolationModule     (needs ppe_detection weights)
     attendance.py     -> AttendanceModule       (needs Phase 7 recognition)
     unknown_person.py -> UnknownPersonAlert     (needs Phase 7 recognition)

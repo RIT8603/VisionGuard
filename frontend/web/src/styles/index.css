@@ -575,7 +575,8 @@ a:focus-visible {
   background: #000;
 }
 
-.stream img {
+.stream img,
+.stream-held {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -1333,4 +1334,279 @@ a:focus-visible {
 .summary-btn:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+
+/* ---------- cameras: dashboard strip ---------- */
+
+.camera-strip {
+  padding: var(--gap) var(--gap) 0;
+}
+
+.camera-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.camera-tile {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  cursor: pointer;
+}
+
+.camera-tile:hover {
+  border-color: var(--line-strong);
+}
+
+.camera-tile.is-selected {
+  border-color: var(--primary);
+}
+
+.camera-tile:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.camera-tile-image {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  overflow: hidden;
+}
+
+.camera-tile-image img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.camera-tile-empty {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.camera-tile-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 2px;
+}
+
+.camera-tile-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.camera-tile-meta {
+  padding: 0 8px 6px;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- cameras: setup page ---------- */
+
+.camera-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 16px;
+  margin: var(--gap) 0;
+  padding: 12px;
+  background: var(--panel);
+  border: var(--border);
+}
+
+.camera-toolbar > p {
+  max-width: 44ch;
+  margin: 0;
+}
+
+.camera-count input {
+  width: 8ch;
+}
+
+.camera-dirty {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.camera-toolbar .summary-btn:disabled {
+  color: var(--muted);
+  background: transparent;
+  border-color: var(--line-strong);
+  cursor: not-allowed;
+}
+
+.camera-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.camera-slot {
+  min-width: 0;
+  background: var(--panel);
+  border: 2px solid var(--line-strong);
+}
+
+.camera-slot.has-problem {
+  border-color: var(--crit);
+}
+
+.camera-slot-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel-head);
+  border-bottom: 2px solid var(--line-strong);
+}
+
+.camera-slot-head h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.camera-slot-id {
+  font-size: 12px;
+  color: var(--primary);
+}
+
+.camera-slot-remove {
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: transparent;
+  border: 2px solid var(--line-strong);
+  cursor: pointer;
+}
+
+.camera-slot-remove:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+.camera-slot-remove:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.camera-slot-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+.camera-slot-live {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* Form fields (cameras page). */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.field input[type='text'],
+.field input[type='number'],
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: #000;
+  border: 2px solid var(--line-strong);
+  border-radius: 0;
+}
+
+.field input.mono {
+  font-family: var(--font-mono);
+}
+
+.field input:focus-visible,
+.field select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--crit);
+}
+
+.field input:disabled,
+.field select:disabled {
+  opacity: 0.55;
+}
+
+.field-help,
+.field-problem {
+  margin: 0;
+  font-size: 12px;
+}
+
+.field-help {
+  color: var(--muted);
+}
+
+.field-problem {
+  font-weight: 600;
+  color: var(--crit);
+}
+
+.field-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
 }

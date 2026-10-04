@@ -105,6 +105,7 @@ class FallDetectionModule(BaseAIModule):
     def cleanup(self) -> None:
         self._tracker.reset()
         self._streaks.clear()
+        self._reported.clear()
         self._fallen.clear()
         super().cleanup()
 
@@ -194,6 +195,14 @@ class FallDetectionModule(BaseAIModule):
                     # Distinguishable from actually standing up.
                     event.data["reason"] = "track_lost"
                     events.append(event)
+
+        # Cooldown timestamps are only needed while the tracker can still
+        # hand the same id back. Ids are never reused, so once the tracker has
+        # dropped a track its entry is dead weight - on a 24/7 camera this
+        # dict otherwise grows by one entry per person who ever fell.
+        alive = {state.track_id for state in self._tracker.active_tracks}
+        for track_id in [tid for tid in self._reported if tid not in alive]:
+            del self._reported[track_id]
         return events
 
     @staticmethod

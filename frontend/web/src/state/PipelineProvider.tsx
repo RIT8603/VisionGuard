@@ -1,6 +1,7 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 import { hasFrame, hasStats } from '../api/guards';
 import type { FrameSummary, PipelineStats } from '../api/types';
+import { useCameras, type CameraList } from '../hooks/useCameras';
 import { useEventFeed, type EventFeed } from '../hooks/useEventFeed';
 import { usePageVisible } from '../hooks/usePageVisible';
 import { usePipelineStatus, type PipelineStatus } from '../hooks/usePipelineStatus';
@@ -17,6 +18,14 @@ export interface PipelineContextValue {
   frame: FrameSummary | null;
   /** Pipeline stats, or null before the first frame. */
   stats: PipelineStats | null;
+  /** Every camera and what it is doing; refreshed once a second. */
+  cameras: CameraList;
+  /** The camera the dashboard is following (id), or null before the list loads. */
+  camera: string | null;
+  /** `camera` as the API wants it: null for the backend's default (first) camera. */
+  cameraParam: string | null;
+  /** Follow another camera. Unknown ids fall back to the first camera. */
+  selectCamera: (id: string) => void;
 }
 
 const PipelineContext = createContext<PipelineContextValue | null>(null);
@@ -30,7 +39,19 @@ const PipelineContext = createContext<PipelineContextValue | null>(null);
  */
 export function PipelineProvider({ children }: { children: ReactNode }) {
   const visible = usePageVisible();
-  const status = usePipelineStatus(visible);
+  const cameras = useCameras(visible);
+
+  // The operator's choice, kept only while that camera still exists.
+  const [selected, setSelected] = useState<string | null>(null);
+  const selectCamera = useCallback((id: string) => setSelected(id), []);
+  const list = cameras.data?.cameras ?? [];
+  const firstId = list[0]?.id ?? null;
+  const camera = selected !== null && list.some((c) => c.id === selected) ? selected : firstId;
+  // The backend's default *is* its first camera, so ask for it by omission:
+  // the status and event loops then do not restart when the list first loads.
+  const cameraParam = camera === firstId ? null : camera;
+
+  const status = usePipelineStatus(visible, cameraParam);
   const reachable = isReachable(status.viewState);
 
   const { data } = status;
@@ -41,11 +62,23 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
     active: visible && reachable,
     restartCount: status.restartCount,
     eventCount: data?.event_count ?? null,
+    camera: cameraParam,
   });
 
   // Not memoised: status is a new object on every poll, so a memo would
   // never hit. Consumers re-render at the poll rate either way.
-  const value: PipelineContextValue = { status, feed, visible, reachable, frame, stats };
+  const value: PipelineContextValue = {
+    status,
+    feed,
+    visible,
+    reachable,
+    frame,
+    stats,
+    cameras,
+    camera,
+    cameraParam,
+    selectCamera,
+  };
 
   return <PipelineContext value={value}>{children}</PipelineContext>;
 }

@@ -33,10 +33,12 @@ class FrameProcessor:
         if self._config.mirror:
             frame = cv2.flip(frame, 1)
 
+        captured = frame
         frame = self._resize(frame)
 
         context = FrameContext(
             frame=frame,
+            original_frame=captured if captured is not frame else None,
             frame_id=packet.frame_id,
             source_id=packet.source_id,
             monotonic_ts=packet.monotonic_ts,
@@ -51,6 +53,17 @@ class FrameProcessor:
             }
         )
         return context
+
+    def prepare(self, frame):
+        """Mirror and resize a raw frame exactly as ``build_context`` does.
+
+        For a live viewer that shows frames the pipeline has not analysed:
+        boxes computed on an analysed frame only line up on a frame that went
+        through the same geometry.
+        """
+        if self._config.mirror:
+            frame = cv2.flip(frame, 1)
+        return self._resize(frame)
 
     def _resize(self, frame):
         target_width = self._config.target_width

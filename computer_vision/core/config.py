@@ -14,12 +14,21 @@ pipeline component is allowed to read ``os.environ`` directly.
 from __future__ import annotations
 
 import os
+import re
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 DEFAULT_CONFIG_PATH = Path("configs/config.yaml")
 ENV_PREFIX = "VISIONGUARD_"
@@ -209,6 +218,23 @@ class VideoConfig(BaseModel):
             raise ValueError("fourcc must be exactly 4 characters, e.g. 'MJPG'")
         return value.upper()
 
+    @field_validator(
+        "open_timeout_sec",
+        "read_timeout_sec",
+        "read_retry_delay_sec",
+        "reconnect_delay_sec",
+        "reconnect_max_delay_sec",
+        "read_retries",
+        "reconnect_attempts",
+    )
+    @classmethod
+    def _validate_non_negative(cls, value, info):
+        # A negative timeout/delay/count has no meaning and was silently
+        # accepted before (e.g. a negative sleep raises mid-reconnect).
+        if value < 0:
+            raise ValueError(f"video.{info.field_name} must be >= 0")
+        return value
+
     @model_validator(mode="after")
     def _validate_source_requirements(self) -> "VideoConfig":
         if self.source is VideoSourceType.FILE and not self.path:
@@ -226,6 +252,101 @@ class VideoConfig(BaseModel):
         if self.source is VideoSourceType.FILE:
             return f"file-{Path(self.path or 'unknown').stem}"
         return "rtsp-0"
+
+
+#: Camera ids are used in URLs and file names, so keep them boring.
+_CAMERA_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+_RTSP_SCHEMES = ("rtsp", "rtsps")
+
+
+class CameraConfig(BaseModel):
+    """One camera in a multi-camera run.
+
+    Only what differs between cameras lives here. Everything else (capture
+    size, RTSP transport, timeouts, reconnect budget) comes from the shared
+    ``video:`` section through :meth:`to_video`, so a camera entry stays as
+    short as ``{id: gate, source: rtsp, rtsp_url: rtsp://...}``.
+
+    The stored list lives in ``configs/cameras.yaml`` (see
+    ``backend.services.cameras``): an RTSP URL usually carries a password,
+    which does not belong in the committed ``config.yaml``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(description="Stable id: lower-case letters, digits, '-' and '_' (max 32).")
+    name: str | None = Field(default=None, description="Display name; defaults to the id.")
+    source: VideoSourceType = VideoSourceType.RTSP
+    device_id: int = 0
+    rtsp_url: str | None = None
+    path: str | None = None
+    loop: bool = False
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _validate_id(cls, value):
+        text = str(value).strip().lower()
+        if not _CAMERA_ID.match(text):
+            raise ValueError(
+                "camera id must be 1-32 characters: lower-case letters, digits, '-' or '_', "
+                "starting with a letter or digit"
+            )
+        return text
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if len(value) > 60:
+            raise ValueError("camera name must be at most 60 characters")
+        return value or None
+
+    @field_validator("device_id")
+    @classmethod
+    def _validate_device_id(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("device_id must be >= 0")
+        return value
+
+    @field_validator("rtsp_url", "path", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _validate_source(self) -> "CameraConfig":
+        if self.source is VideoSourceType.RTSP:
+            if not self.rtsp_url:
+                raise ValueError("rtsp_url is required for an rtsp camera")
+            # ffmpeg understands far more than RTSP (file:, concat:, http:, ...).
+            # A camera entry can come from the dashboard, so only RTSP is allowed.
+            scheme = self.rtsp_url.split(":", 1)[0].lower()
+            if scheme not in _RTSP_SCHEMES or "://" not in self.rtsp_url:
+                raise ValueError("rtsp_url must start with rtsp:// or rtsps://")
+        elif self.source is VideoSourceType.FILE and not self.path:
+            raise ValueError("path is required for a file camera")
+        return self
+
+    @property
+    def label(self) -> str:
+        return self.name or self.id
+
+    def to_video(self, base: VideoConfig) -> VideoConfig:
+        """The full ``VideoConfig`` for this camera, on top of the shared one."""
+        data = base.model_dump()
+        data.update(
+            source=self.source,
+            source_id=self.id,
+            device_id=self.device_id,
+            rtsp_url=self.rtsp_url,
+            path=self.path,
+            loop=self.loop,
+        )
+        return VideoConfig(**data)
 
 
 class ProcessingConfig(BaseModel):
@@ -278,6 +399,13 @@ class ProcessingConfig(BaseModel):
             raise ValueError("processing.target_width must be positive or null")
         return value
 
+    @field_validator("hud_max_detections", "max_fps", "stall_timeout_sec", "log_stats_every")
+    @classmethod
+    def _validate_processing_non_negative(cls, value, info):
+        if value < 0:
+            raise ValueError(f"processing.{info.field_name} must be >= 0")
+        return value
+
     @field_validator("stats_window")
     @classmethod
     def _validate_stats_window(cls, value: int) -> int:
@@ -295,10 +423,31 @@ class DashboardConfig(BaseModel):
     host: str = Field(
         default="127.0.0.1",
         description=(
-            "Bind address. The dashboard has NO authentication, so it defaults "
-            "to localhost only. Set 0.0.0.0 to expose it on the network, and "
-            "put it behind a reverse proxy with auth if you do."
+            "Bind address. Defaults to localhost only. Binding to a network "
+            "address (e.g. 0.0.0.0) always requires an access token: the one "
+            "set in auth_token, or a random one generated and printed at startup."
         ),
+    )
+    auth_token: SecretStr | None = Field(
+        default=None,
+        description=(
+            "Access token for the dashboard. Set it through the environment "
+            "(VISIONGUARD_DASHBOARD_TOKEN / DASHBOARD_TOKEN), never in a "
+            "committed config file. Optional on localhost; when unset on a "
+            "network bind, a random per-run token is generated."
+        ),
+    )
+    allowed_hosts: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Extra Host header values accepted (e.g. a LAN IP or hostname). "
+            "localhost/127.0.0.1/::1 and a specific bind address are always "
+            "accepted. Guards against DNS rebinding."
+        ),
+    )
+    max_streams: int = Field(
+        default=4,
+        description="Concurrent live-video (MJPEG) viewers allowed; extra ones get 503.",
     )
     port: int = 8080
     stream_fps: float = Field(
@@ -309,8 +458,40 @@ class DashboardConfig(BaseModel):
         ),
     )
     jpeg_quality: int = 75
+    live_view: bool = Field(
+        default=True,
+        description=(
+            "Show the camera at stream_fps even when analysis is slower, "
+            "drawing the latest results over live frames. Applies to sources "
+            "that capture on their own thread (RTSP); others show analysed "
+            "frames. False = always show analysed frames only."
+        ),
+    )
+    live_view_sync: bool = Field(
+        default=True,
+        description=(
+            "Hold the live picture back by about one analysis interval (at "
+            "most 3 s) so boxes are drawn where things were on the frame "
+            "shown. False = always the newest frame, with boxes moved along "
+            "their velocity: no delay, looser boxes."
+        ),
+    )
     max_events: int = Field(
         default=200, description="How many recent events the feed keeps."
+    )
+    max_cameras: int = Field(
+        default=8,
+        description=(
+            "Most cameras one run may drive (1-32). Each camera is a full "
+            "pipeline, so the real limit is your CPU, not this number."
+        ),
+    )
+    allow_camera_edit: bool = Field(
+        default=True,
+        description=(
+            "Let the dashboard change the camera list (POST /api/cameras). Set "
+            "false to freeze the cameras to configs/cameras.yaml / video:."
+        ),
     )
 
     @field_validator("port")
@@ -332,6 +513,42 @@ class DashboardConfig(BaseModel):
     def _validate_stream_fps(cls, value: float) -> float:
         if value < 0:
             raise ValueError("dashboard.stream_fps must be >= 0 (0 = every frame)")
+        return value
+
+    @field_validator("max_events", "max_streams")
+    @classmethod
+    def _validate_positive_counts(cls, value: int, info) -> int:
+        if value < 1:
+            raise ValueError(f"dashboard.{info.field_name} must be >= 1")
+        return value
+
+    @field_validator("max_cameras")
+    @classmethod
+    def _validate_max_cameras(cls, value: int) -> int:
+        if not 1 <= value <= 32:
+            raise ValueError("dashboard.max_cameras must be between 1 and 32")
+        return value
+
+    @field_validator("auth_token", mode="before")
+    @classmethod
+    def _blank_token_is_none(cls, value):
+        # An empty DASHBOARD_TOKEN= line must not become a valid empty token.
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return value
+
+    @field_validator("auth_token")
+    @classmethod
+    def _validate_token_strength(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and len(value.get_secret_value()) < 16:
+            raise ValueError("dashboard.auth_token must be at least 16 characters")
+        return value
+
+    @field_validator("allowed_hosts", mode="before")
+    @classmethod
+    def _split_hosts(cls, value):
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
         return value
 
 
@@ -429,6 +646,8 @@ _ENV_OVERRIDES: Mapping[str, tuple[str, str, Any]] = {
     "DASHBOARD": ("dashboard", "enabled", _as_bool),
     "DASHBOARD_HOST": ("dashboard", "host", str),
     "DASHBOARD_PORT": ("dashboard", "port", int),
+    "DASHBOARD_TOKEN": ("dashboard", "auth_token", str),
+    "DASHBOARD_ALLOWED_HOSTS": ("dashboard", "allowed_hosts", str),
 }
 
 

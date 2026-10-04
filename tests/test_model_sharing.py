@@ -77,6 +77,27 @@ class TestShareKey:
         params = {"model": "yolo11n.pt"}
         assert share_key("ultralytics", params) != share_key("onnx", params)
 
+    def test_spelling_out_a_default_still_shares(self):
+        """`device: cpu, imgsz: 640` is the same model as leaving both out.
+
+        Regression: the shipped config spelled these out for person_detection
+        only, so it never shared with object/vehicle_detection and every frame
+        was inferred twice.
+        """
+        explicit = {"model": "yolo11n.pt", "device": "cpu", "imgsz": 640, "iou": 0.45}
+        implicit = {"model": "yolo11n.pt"}
+        assert share_key("ultralytics", explicit) == share_key("ultralytics", implicit)
+
+    def test_equivalent_spellings_share(self):
+        a = {"model": "yolo11n.pt", "device": "CPU", "imgsz": "960", "classes": []}
+        b = {"model": "yolo11n.pt", "device": "cpu", "imgsz": 960}
+        assert share_key("ultralytics", a) == share_key("ultralytics", b)
+
+    def test_a_non_default_value_on_one_side_does_not_share(self):
+        assert share_key("ultralytics", {"model": "yolo11n.pt", "imgsz": 960}) != share_key(
+            "ultralytics", {"model": "yolo11n.pt"}
+        )
+
 
 class TestFactoryCache:
     def test_matching_configs_get_the_same_instance(self):

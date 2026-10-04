@@ -1,0 +1,1 @@
+Put person_reid_youtu_2021nov.onnx here (see ../README.md). gallery.npz is written here when person_reid.gallery_path points at it.

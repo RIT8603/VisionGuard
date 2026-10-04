@@ -187,6 +187,19 @@ class ZoneStateMachine:
                 abandoned.append((key[0], state))
         return abandoned
 
+    def transfer(self, old: SubjectKey, new: SubjectKey) -> None:
+        """Carry ``old``'s state in every zone over to ``new``.
+
+        For a tracker that lost someone and picked them up again under a new
+        id: the visit continues instead of ending and starting again.
+        """
+        for key in [k for k in self.states if k[1] == old]:
+            self.states[(key[0], new)] = self.states.pop(key)
+
+    def is_inside(self, zone_name: str, subject: SubjectKey) -> bool:
+        state = self.states.get((zone_name, subject))
+        return bool(state and state.inside)
+
     def known_subjects(self) -> set[SubjectKey]:
         return {subject for _, subject in self.states}
 

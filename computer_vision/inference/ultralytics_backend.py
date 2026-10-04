@@ -12,9 +12,10 @@ OpenCV-DNN backend without touching any module.
 
 from __future__ import annotations
 
+import importlib.util
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 
@@ -23,6 +24,7 @@ from computer_vision.inference.base import (
     DetectorBackend,
     ModelLoadError,
     RawDetection,
+    verify_model_file,
 )
 from computer_vision.utils.logger import get_logger
 
@@ -30,15 +32,66 @@ logger = get_logger(__name__)
 
 DEFAULT_MODEL = "computer_vision/Model/detection/yolo11n.pt"
 
+#: One side (square / aspect-preserving) or an exact ``(height, width)``.
+ImageSize = Union[int, Tuple[int, int]]
+
+
+def parse_imgsz(value: Any, default: int = 640) -> ImageSize:
+    """``640`` -> ``640``; ``[544, 960]`` -> ``(544, 960)``.
+
+    The pair form is what an exported, fixed-shape model needs: it accepts
+    exactly the shape it was exported with.
+    """
+    if value is None:
+        return default
+    if isinstance(value, (list, tuple)):
+        if len(value) != 2:
+            raise ModelLoadError(f"imgsz must be one number or [height, width], got {value!r}")
+        return int(value[0]), int(value[1])
+    return int(value)
+
+
+def _require_openvino(model_path: str) -> None:
+    """Fail with instructions when an OpenVINO model is configured without it.
+
+    Ultralytics would otherwise try to ``pip install`` the package itself at
+    load time; installing software as a side effect of starting a camera
+    pipeline is not something VisionGuard does implicitly.
+    """
+    if importlib.util.find_spec("openvino") is None:
+        raise BackendNotAvailableError(
+            f"The model at {model_path} is an OpenVINO export, but the "
+            "'openvino' package is not installed.\n"
+            "Install it with:  pip install openvino\n"
+            "Or point the module's 'model' back at a .pt file."
+        )
+
+
+def _download_only(model_ref: str) -> str:
+    """Fetch official Ultralytics weights to ``model_ref`` without loading them."""
+    from ultralytics.utils.downloads import attempt_download_asset
+
+    logger.warning("Model '%s' not found locally - downloading it (allow_download)", model_ref)
+    return attempt_download_asset(model_ref)
+
 
 class UltralyticsDetector(DetectorBackend):
     """Wraps ``ultralytics.YOLO`` behind the VisionGuard backend contract.
 
     Parameters (from the module's config block):
         model: Weight file path, or a known Ultralytics name that will be
-            downloaded on first use. Default ``yolo11n.pt``.
-        device: ``cpu``, ``cuda``, ``0`` ... Default ``cpu``.
-        imgsz: Inference resolution. Default 640.
+            downloaded on first use only when ``allow_download`` is true.
+            May also be an exported model directory such as
+            ``yolo11s_openvino_model`` - several times faster than the ``.pt``
+            on an Intel CPU, at the same accuracy.
+        model_sha256: Optional expected SHA-256 of the weights file (or the
+            directory digest, see ``model_digest``); loading is refused on
+            mismatch.
+        allow_download: Let Ultralytics fetch a missing model. Default false.
+        device: ``cpu``, ``cuda``, ``0`` ... Default ``cpu``. For an OpenVINO
+            model: ``intel:cpu`` or ``intel:gpu`` (integrated graphics).
+        imgsz: Inference resolution. Default 640. Use ``[height, width]`` for
+            an exported fixed-shape model, matching its export size.
         confidence_threshold: Model-side score cut. Default 0.25; the module
             applies its own, stricter threshold afterwards.
         iou: NMS IoU threshold. Default 0.45.
@@ -56,7 +109,7 @@ class UltralyticsDetector(DetectorBackend):
 
         self._model_ref = str(self.params.get("model", DEFAULT_MODEL))
         self._device = str(self.params.get("device", "cpu"))
-        self._imgsz = int(self.params.get("imgsz", 640))
+        self._imgsz: ImageSize = parse_imgsz(self.params.get("imgsz"))
         self._conf = float(self.params.get("model_confidence", 0.25))
         self._iou = float(self.params.get("iou", 0.45))
         self._half = bool(self.params.get("half", False))
@@ -83,16 +136,23 @@ class UltralyticsDetector(DetectorBackend):
                 "Or select a different backend in config.yaml."
             ) from exc
 
-        local = Path(self._model_ref)
-        if local.suffix and not local.exists():
-            logger.info(
-                "Model '%s' not found locally - Ultralytics will download it on "
-                "first use (this happens once).",
-                self._model_ref,
-            )
+        # Weights are pickles: verify (and, only if allowed, fetch) the file
+        # before anything deserialises it.
+        model_path = verify_model_file(
+            self._model_ref,
+            expected_sha256=self.params.get("model_sha256"),
+            allow_download=bool(self.params.get("allow_download", False)),
+            download=_download_only,
+        )
+
+        exported = Path(model_path).is_dir()
+        if exported and "openvino" in Path(model_path).name.lower():
+            _require_openvino(model_path)
 
         try:
-            self._model = YOLO(self._model_ref)
+            # An exported model carries no task of its own; say it explicitly
+            # rather than let it be guessed from the directory name.
+            self._model = YOLO(model_path, task="detect") if exported else YOLO(model_path)
             # Ultralytics resolves class names lazily; touch them now so a bad
             # model surfaces here rather than on the first frame.
             self._names = dict(self._model.names)
@@ -104,7 +164,7 @@ class UltralyticsDetector(DetectorBackend):
 
         self._loaded = True
         logger.info(
-            "Loaded %s on device '%s' (imgsz=%d, %d classes)",
+            "Loaded %s on device '%s' (imgsz=%s, %d classes)",
             self._model_ref,
             self._device,
             self._imgsz,
@@ -121,7 +181,10 @@ class UltralyticsDetector(DetectorBackend):
         cost ~1.9 s against ~45 ms steady state. Paying that at startup keeps
         it out of the live loop.
         """
-        blank = np.zeros((self._imgsz, self._imgsz, 3), dtype=np.uint8)
+        height, width = (
+            self._imgsz if isinstance(self._imgsz, tuple) else (self._imgsz, self._imgsz)
+        )
+        blank = np.zeros((height, width, 3), dtype=np.uint8)
         started = time.perf_counter()
         try:
             self.infer(blank)

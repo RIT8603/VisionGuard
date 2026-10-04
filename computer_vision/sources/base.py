@@ -12,7 +12,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Tuple
 
 import numpy as np
 
@@ -143,6 +143,16 @@ class BaseVideoSource(ABC):
         return self._is_open
 
     @property
+    def is_recovering(self) -> bool:
+        """True while the source is deliberately reconnecting.
+
+        The pipeline's stall timeout must not end a run that the source is
+        still actively recovering (reconnect backoff can legitimately exceed
+        it). Sources without their own recovery policy never report this.
+        """
+        return False
+
+    @property
     def frame_id(self) -> int:
         """Number of frames handed out so far."""
         return self._frame_id
@@ -165,6 +175,22 @@ class BaseVideoSource(ABC):
     @abstractmethod
     def info(self) -> SourceInfo:
         """Properties of the opened source."""
+
+    # ---------------- live view ---------------- #
+
+    def peek(self) -> Tuple[Optional[np.ndarray], int]:
+        """The newest captured frame and its sequence number, without taking it.
+
+        For a viewer that wants to show the camera at its own rate while the
+        pipeline analyses at another. ``read()`` is unaffected: the same frame
+        can still be handed to the pipeline. The array is shared - a caller
+        must not draw on it.
+
+        Only sources that capture on their own thread can offer this; the
+        others return ``(None, 0)``, and the viewer shows analysed frames
+        instead.
+        """
+        return None, 0
 
     # ---------------- conveniences ---------------- #
 

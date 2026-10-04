@@ -6,10 +6,14 @@
  */
 
 import type {
+  CameraInfo,
+  CamerasResponse,
   EventsResponse,
   FeedEvent,
   FrameSummary,
   PipelineStats,
+  SetCamerasResponse,
+  SetModulesResponse,
   StatusResponse,
 } from './types';
 
@@ -41,6 +45,39 @@ function isFeedEvent(value: unknown): value is FeedEvent {
 
 export function isEventsResponse(value: unknown): value is EventsResponse {
   return isObject(value) && Array.isArray(value.events) && value.events.every(isFeedEvent);
+}
+
+export function isSetModulesResponse(value: unknown): value is SetModulesResponse {
+  return (
+    isObject(value) &&
+    typeof value.status === 'string' &&
+    Array.isArray(value.enabled) &&
+    value.enabled.every((entry) => typeof entry === 'string')
+  );
+}
+
+function isCameraInfo(value: unknown): value is CameraInfo {
+  return (
+    isObject(value) &&
+    typeof value.id === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.source === 'string' &&
+    typeof value.status === 'string'
+  );
+}
+
+export function isCamerasResponse(value: unknown): value is CamerasResponse {
+  return (
+    isObject(value) &&
+    Array.isArray(value.cameras) &&
+    value.cameras.every(isCameraInfo) &&
+    typeof value.max_cameras === 'number' &&
+    typeof value.editable === 'boolean'
+  );
+}
+
+export function isSetCamerasResponse(value: unknown): value is SetCamerasResponse {
+  return isObject(value) && typeof value.status === 'string' && Array.isArray(value.cameras);
 }
 
 /** False before the first frame, when the backend sends `frame: {}`. */
