@@ -6,6 +6,9 @@ import { Panel } from '../ui/Panel';
 interface EventFeedProps {
   events: FeedEvent[];
   error: ApiError | null;
+  title?: string;
+  emptyMessage?: string;
+  showPayload?: boolean;
 }
 
 const SEVERITY_LABEL: Record<Severity, string> = {
@@ -14,12 +17,18 @@ const SEVERITY_LABEL: Record<Severity, string> = {
   critical: 'Crit',
 };
 
-export function EventFeed({ events, error }: EventFeedProps) {
+export function EventFeed({
+  events,
+  error,
+  title = 'Event log',
+  emptyMessage,
+  showPayload = false,
+}: EventFeedProps) {
   const critical = events.filter((e) => severityOf(e.severity) === 'critical').length;
 
   return (
     <Panel
-      title="Event log"
+      title={title}
       className="panel-log"
       aside={
         <span className="mono">
@@ -31,8 +40,8 @@ export function EventFeed({ events, error }: EventFeedProps) {
       {error && <p className="inline-error">Events unavailable: {error.message}</p>}
       {events.length === 0 ? (
         <p className="empty">
-          No events yet. Events come from analysis modules such as restricted_zone or
-          fall_detection.
+          {emptyMessage ??
+            'No events yet. Events come from analysis modules such as restricted_zone or fall_detection.'}
         </p>
       ) : (
         <ol className="log">
@@ -50,10 +59,18 @@ export function EventFeed({ events, error }: EventFeedProps) {
                   </div>
                   {detail && <div className="log-detail">{detail}</div>}
                   <div className="log-meta mono">
-                    <time dateTime={event.timestamp}>{fmtTime(event.timestamp)}</time>
+                    <time dateTime={event.timestamp}>
+                      {formatTimestamp(event.timestamp, showPayload)}
+                    </time>
                     <span>F{event.frame_id}</span>
                     <span>{event.module}</span>
                   </div>
+                  {showPayload && (
+                    <details className="event-payload">
+                      <summary>Full event payload · #{event.id}</summary>
+                      <pre>{JSON.stringify(event, null, 2)}</pre>
+                    </details>
+                  )}
                 </div>
               </li>
             );
@@ -62,4 +79,10 @@ export function EventFeed({ events, error }: EventFeedProps) {
       )}
     </Panel>
   );
+}
+
+function formatTimestamp(timestamp: string, includeDate: boolean): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return fmtTime(timestamp);
+  return includeDate ? date.toLocaleString() : fmtTime(timestamp);
 }

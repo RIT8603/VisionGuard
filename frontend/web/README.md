@@ -3,9 +3,8 @@
 React + Vite + TypeScript frontend for VisionGuard, in two parts:
 
 - **Public site**: Landing, About and Contact pages describing the project.
-- **Portal**: the live monitoring dashboard for a running VisionGuard pipeline,
-  with annotated video, run status, per-frame detections and tracks, the event
-  log and performance telemetry.
+- **Portal**: a summary dashboard plus dedicated live monitoring and event
+  pages for a running VisionGuard pipeline.
 
 The portal is a read-only client of the dashboard API in
 [`backend/api/server.py`](../../backend/api/server.py). Nothing here changes the
@@ -45,7 +44,9 @@ dashboard at <http://localhost:5173/portal/dashboard>.
 | `/about` | Public | About |
 | `/contact` | Public | Contact |
 | `/portal` | Portal | Redirects to `/portal/dashboard` |
-| `/portal/dashboard` | Portal | Live monitoring dashboard |
+| `/portal/dashboard` | Portal | Summary dashboard |
+| `/portal/live` | Portal | Live stream, telemetry, source and full frame/module detail |
+| `/portal/events` | Portal | Session event feed with client-side filters |
 | `/portal/modules` | Portal | Module selection (review and select capabilities; not saved) |
 | anything else | Public | Branded 404 (keeps the URL that was typed) |
 
@@ -69,17 +70,17 @@ src/
     PortalLayout.tsx       PipelineProvider + portal header + tabs + notice + page
   pages/
     public/                LandingPage, AboutPage, ContactPage
-    portal/                DashboardPage, ModulesPage
+    portal/                DashboardPage, LiveMonitoringPage, EventsPage, ModulesPage
     NotFoundPage.tsx
   content/
     moduleCatalog.ts       customer-facing module list with status and backend keys
   components/
-    ui/                    generic: Panel, ExternalLink
+    ui/                    generic: Panel, PanelLink, ExternalLink
     brand/                 Logo (LogoMark, Wordmark)
     layout/                PublicNavbar, Footer, PortalHeader, PortalNav
     modules/               ModuleCard, SelectionSummary
-    pipeline/              dashboard panels: LiveStream, StatsPanel, StatusPanel,
-                           ModulesPanel, FrameResults, EventFeed,
+    pipeline/              shared panels: LiveStream, StatsPanel, StatusPanel,
+                           ModulesPanel, FrameResults, FrameSummary, EventFeed,
                            ConnectionNotice, StateBadge
   api/                     typed models, shape guards, fetch client, endpoints
   hooks/                   usePipelineStatus, useEventFeed, usePageVisible
@@ -153,7 +154,7 @@ event cursor and one restart detector, and public pages never poll.
 | `PublicNavbar`, `Footer` | `layout/` | Public site frame |
 | `PortalHeader`, `PortalNav` | `layout/` | Portal status bar and tab strip |
 | `StateBadge` | `pipeline/` | LIVE / STALE / OFFLINE… block |
-| `LiveStream`, `StatsPanel`, `StatusPanel`, `ModulesPanel`, `FrameResults`, `EventFeed`, `ConnectionNotice` | `pipeline/` | Dashboard panels; take plain props, so any portal page can reuse them |
+| `LiveStream`, `StatsPanel`, `StatusPanel`, `ModulesPanel`, `FrameResults`, `FrameSummary`, `EventFeed`, `ConnectionNotice` | `pipeline/` | Shared panels; take plain props, so portal pages can reuse them |
 
 ## Connecting to the backend
 
@@ -291,16 +292,16 @@ the same brackets the backend draws around what it detects.
 | Implemented | Planned (not started) |
 |---|---|
 | Public Landing, About, Contact, 404 | Auth pages: login, register, password reset |
-| Portal layout with header, tabs and connection notice | Portal pages: Live Monitoring, Cameras, Events & Alerts, Zones, Employees, Reports, Notifications, Profile, Settings |
+| Portal layout with header, tabs and connection notice | Portal pages: Cameras, Zones, Employees, Reports, Notifications, Profile, Settings |
 | Module selection page (review, select, config snippet; not saved) | Saving or applying module selections (needs a backend endpoint) |
-| Live dashboard: MJPEG video, telemetry, current frame, source, modules, event log | Anything needing new backend endpoints (authentication, camera or zone management, configuration, reports) |
+| Dashboard summary plus Live Monitoring and Events & Alerts detail pages | Anything needing new backend endpoints (authentication, camera or zone management, configuration, reports) |
 | Shared polling via `PipelineProvider` | |
 | Connection states, restart detection, tab-visibility pausing | |
 
-Live Monitoring and Events & Alerts can be built from data the backend
-already exposes. The other portal pages need backend support that does not
-exist yet; build them as clearly labelled placeholders rather than with invented
-data.
+Live Monitoring and Events & Alerts use data the backend already exposes.
+Events remain session-only in the backend buffer; notification delivery is not
+implemented. Other portal pages need backend support that does not exist yet;
+build them as clearly labelled placeholders rather than with invented data.
 
 ## Known limitations
 

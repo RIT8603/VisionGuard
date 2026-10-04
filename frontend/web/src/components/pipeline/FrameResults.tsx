@@ -8,8 +8,8 @@ const MAX_ROWS = 12;
 // Cells carry data-label so narrow screens can stack each row as a labelled
 // block (see .data-table in styles.css) instead of scrolling sideways.
 
-function MoreRows({ total }: { total: number }) {
-  return total > MAX_ROWS ? <p className="more-rows mono">+{total - MAX_ROWS} more</p> : null;
+function MoreRows({ total, maxRows }: { total: number; maxRows: number }) {
+  return total > maxRows ? <p className="more-rows mono">+{total - maxRows} more</p> : null;
 }
 
 function GroupHeader({ module, count, noun }: { module: string; count: number; noun: string }) {
@@ -24,7 +24,15 @@ function GroupHeader({ module, count, noun }: { module: string; count: number; n
   );
 }
 
-function TrackTable({ module, tracks }: { module: string; tracks: Track[] }) {
+function TrackTable({
+  module,
+  tracks,
+  maxRows,
+}: {
+  module: string;
+  tracks: Track[];
+  maxRows: number;
+}) {
   return (
     <div className="result-group">
       <GroupHeader module={module} count={tracks.length} noun="track" />
@@ -41,7 +49,7 @@ function TrackTable({ module, tracks }: { module: string; tracks: Track[] }) {
             </tr>
           </thead>
           <tbody>
-            {tracks.slice(0, MAX_ROWS).map((track) => (
+            {tracks.slice(0, maxRows).map((track) => (
               <tr key={track.track_id}>
                 <td className="num mono cell-id" data-label="ID">#{track.track_id}</td>
                 <td data-label="Class">{track.class}</td>
@@ -54,7 +62,7 @@ function TrackTable({ module, tracks }: { module: string; tracks: Track[] }) {
           </tbody>
         </table>
       )}
-      <MoreRows total={tracks.length} />
+      <MoreRows total={tracks.length} maxRows={maxRows} />
     </div>
   );
 }
@@ -64,7 +72,15 @@ function identityOf(detection: Detection): string {
   return typeof identity === 'string' ? identity : 'unknown';
 }
 
-function DetectionTable({ module, detections }: { module: string; detections: Detection[] }) {
+function DetectionTable({
+  module,
+  detections,
+  maxRows,
+}: {
+  module: string;
+  detections: Detection[];
+  maxRows: number;
+}) {
   // face_recognition attaches an identity; other detectors do not.
   const showIdentity = detections.some((d) => d.extra !== undefined && 'identity' in d.extra);
 
@@ -82,7 +98,7 @@ function DetectionTable({ module, detections }: { module: string; detections: De
             </tr>
           </thead>
           <tbody>
-            {detections.slice(0, MAX_ROWS).map((detection, index) => (
+            {detections.slice(0, maxRows).map((detection, index) => (
               // Detections have no id; order within one frame is stable enough.
               <tr key={index}>
                 <td data-label="Class">{detection.class}</td>
@@ -94,12 +110,18 @@ function DetectionTable({ module, detections }: { module: string; detections: De
           </tbody>
         </table>
       )}
-      <MoreRows total={detections.length} />
+      <MoreRows total={detections.length} maxRows={maxRows} />
     </div>
   );
 }
 
-export function FrameResults({ frame }: { frame: FrameSummary | null }) {
+export function FrameResults({
+  frame,
+  showAll = false,
+}: {
+  frame: FrameSummary | null;
+  showAll?: boolean;
+}) {
   if (!frame) {
     return (
       <Panel title="Current frame">
@@ -112,6 +134,7 @@ export function FrameResults({ frame }: { frame: FrameSummary | null }) {
   const detectionGroups = Object.entries(frame.detections);
   const poseModules = Object.keys(frame.poses);
   const poseCount = Object.values(frame.poses).reduce((sum, list) => sum + list.length, 0);
+  const maxRows = showAll ? Number.POSITIVE_INFINITY : MAX_ROWS;
 
   return (
     <Panel
@@ -126,10 +149,15 @@ export function FrameResults({ frame }: { frame: FrameSummary | null }) {
         <p className="empty">No detection or tracking module produced results.</p>
       )}
       {trackGroups.map(([module, tracks]) => (
-        <TrackTable key={module} module={module} tracks={tracks} />
+        <TrackTable key={module} module={module} tracks={tracks} maxRows={maxRows} />
       ))}
       {detectionGroups.map(([module, detections]) => (
-        <DetectionTable key={module} module={module} detections={detections} />
+        <DetectionTable
+          key={module}
+          module={module}
+          detections={detections}
+          maxRows={maxRows}
+        />
       ))}
       {poseModules.length > 0 && (
         <p className="more-rows mono">
