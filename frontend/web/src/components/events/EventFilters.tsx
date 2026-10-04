@@ -22,6 +22,16 @@ export function EventFilters({ filters, modules, onChange }: EventFiltersProps) 
 
   return (
     <section className="event-filters" aria-label="Filter events">
+      {/* Placeholder until events carry a camera id: no values are offered or invented. */}
+      <label className="filter-field filter-camera">
+        <span>Camera</span>
+        <select value="all" disabled aria-describedby="camera-filter-hint">
+          <option value="all">All (single source)</option>
+        </select>
+        <span id="camera-filter-hint" className="filter-hint">
+          Needs backend support: events do not carry a camera id yet.
+        </span>
+      </label>
       <label className="filter-field">
         <span>Severity</span>
         <select

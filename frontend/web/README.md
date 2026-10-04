@@ -46,6 +46,8 @@ dashboard at <http://localhost:5173/portal/dashboard>.
 | `/portal` | Portal | Redirects to `/portal/dashboard` |
 | `/portal/dashboard` | Portal | Summary dashboard |
 | `/portal/live` | Portal | Live stream, telemetry, source and full frame/module detail |
+| `/portal/cameras` | Portal | Camera registry (integration state until the backend lists cameras) |
+| `/portal/cameras/:cameraId` | Portal | One camera's detail layout (integration state until camera-scoped routes exist) |
 | `/portal/events` | Portal | Session event feed with client-side filters |
 | `/portal/modules` | Portal | Module selection (review and select capabilities; not saved) |
 | anything else | Public | Branded 404 (keeps the URL that was typed) |
@@ -70,7 +72,8 @@ src/
     PortalLayout.tsx       PipelineProvider + portal header + tabs + notice + page
   pages/
     public/                LandingPage, AboutPage, ContactPage
-    portal/                DashboardPage, LiveMonitoringPage, EventsPage, ModulesPage
+    portal/                DashboardPage, LiveMonitoringPage, EventsPage, ModulesPage,
+                           CamerasPage, CameraDetailPage
     NotFoundPage.tsx
   content/
     moduleCatalog.ts       customer-facing module list with status and backend keys
@@ -79,11 +82,14 @@ src/
     brand/                 Logo (LogoMark, Wordmark)
     layout/                PublicNavbar, Footer, PortalHeader, PortalNav
     modules/               ModuleCard, SelectionSummary
+    cameras/               CameraCard (+ layout preview), CamerasSummaryPanel
     pipeline/              shared panels: LiveStream, StatsPanel, StatusPanel,
                            ModulesPanel, FrameResults, FrameSummary, EventFeed,
                            ConnectionNotice, StateBadge
-  api/                     typed models, shape guards, fetch client, endpoints
-  hooks/                   usePipelineStatus, useEventFeed, usePageVisible
+  api/                     typed models, shape guards, fetch client, endpoints;
+                           cameras.ts = pending camera-scoped contract (no requests)
+  hooks/                   usePipelineStatus, useEventFeed, usePageVisible,
+                           useCameraRegistry
   state/
     viewState.ts           derives loading/waiting/live/stale/stopped/offline
     PipelineProvider.tsx   shares one set of polling loops across the portal
@@ -195,6 +201,28 @@ Not used: `/api/snapshot.jpg`, and the backend's `/`, which serves the legacy
 page. Every endpoint is GET-only and unauthenticated; none can control the
 pipeline.
 
+### Multi-camera (pending backend integration)
+
+The backend runs one source: one status feed, one event buffer, one stream.
+The Cameras pages are built against the contract expected once it supports
+several, described in [`src/api/cameras.ts`](src/api/cameras.ts):
+
+| Endpoint | Will be used for |
+|---|---|
+| `/api/cameras` | Camera registry (Cameras page, Dashboard panel) |
+| `/api/cameras/{cameraId}/status` | Per-camera status, same shape as `/api/status` |
+| `/api/cameras/{cameraId}/events` | Per-camera events, each with a `camera_id` |
+| `/api/cameras/{cameraId}/snapshot.jpg` | Camera card preview |
+| `/api/cameras/{cameraId}/stream.mjpg` | Camera detail live stream |
+
+None of these exist yet and none are requested: `CAMERA_API_AVAILABLE` is
+`false` and `useCameraRegistry()` reports `unsupported`, so the pages show an
+integration-needed state rather than invented cameras. To connect them,
+confirm the shapes against the backend, implement the request in
+`useCameraRegistry()`, add a per-camera status/events hook, and feed the
+existing panels on `CameraDetailPage`. `/portal/live` keeps using the
+single-source endpoints above.
+
 ## Dashboard behaviour
 
 ### UI states
@@ -292,10 +320,11 @@ the same brackets the backend draws around what it detects.
 | Implemented | Planned (not started) |
 |---|---|
 | Public Landing, About, Contact, 404 | Auth pages: login, register, password reset |
-| Portal layout with header, tabs and connection notice | Portal pages: Cameras, Zones, Employees, Reports, Notifications, Profile, Settings |
+| Portal layout with header, tabs and connection notice | Portal pages: Zones, Employees, Reports, Notifications, Profile, Settings |
 | Module selection page (review, select, config snippet; not saved) | Saving or applying module selections (needs a backend endpoint) |
 | Dashboard summary plus Live Monitoring and Events & Alerts detail pages | Anything needing new backend endpoints (authentication, camera or zone management, configuration, reports) |
 | Shared polling via `PipelineProvider` | |
+| Cameras registry and camera detail pages (integration state only) | Camera discovery and camera-scoped status, events and streams (need backend routes) |
 | Connection states, restart detection, tab-visibility pausing | |
 
 Live Monitoring and Events & Alerts use data the backend already exposes.

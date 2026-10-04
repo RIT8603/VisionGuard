@@ -9,13 +9,21 @@ interface ModulesPanelProps {
   errors: Record<string, string> | undefined;
   /** Frames are flowing; without that, "no error" says nothing about health. */
   live: boolean;
+  /** Shown instead of the list when `modules` is empty. */
+  emptyMessage?: string;
 }
 
 type Health = 'ok' | 'err' | 'unknown';
 
 const HEALTH_LABEL: Record<Health, string> = { ok: 'OK', err: 'ERR', unknown: DASH };
 
-export function ModulesPanel({ modules, latency, errors, live }: ModulesPanelProps) {
+export function ModulesPanel({
+  modules,
+  latency,
+  errors,
+  live,
+  emptyMessage = 'No modules enabled.',
+}: ModulesPanelProps) {
   const failing = modules.filter((m) => errors?.[m.name]).length;
 
   return (
@@ -30,7 +38,7 @@ export function ModulesPanel({ modules, latency, errors, live }: ModulesPanelPro
       }
     >
       {modules.length === 0 ? (
-        <p className="empty">No modules enabled.</p>
+        <p className="empty">{emptyMessage}</p>
       ) : (
         <ul className="modules">
           {modules.map((module) => {

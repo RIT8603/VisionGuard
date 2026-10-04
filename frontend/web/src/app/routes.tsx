@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from 'react-router';
 import { PortalLayout } from '../layouts/PortalLayout';
 import { PublicLayout } from '../layouts/PublicLayout';
 import { NotFoundPage } from '../pages/NotFoundPage';
+import { CameraDetailPage } from '../pages/portal/CameraDetailPage';
+import { CamerasPage } from '../pages/portal/CamerasPage';
 import { DashboardPage } from '../pages/portal/DashboardPage';
 import { EventsPage } from '../pages/portal/EventsPage';
 import { LiveMonitoringPage } from '../pages/portal/LiveMonitoringPage';
@@ -31,6 +33,8 @@ export function AppRoutes() {
         <Route index element={<Navigate to={PATHS.portal.dashboard} replace />} />
         <Route path={PATHS.portal.dashboard} element={<DashboardPage />} />
         <Route path={PATHS.portal.live} element={<LiveMonitoringPage />} />
+        <Route path={PATHS.portal.cameras} element={<CamerasPage />} />
+        <Route path={PATHS.portal.cameraDetail} element={<CameraDetailPage />} />
         <Route path={PATHS.portal.events} element={<EventsPage />} />
         <Route path={PATHS.portal.modules} element={<ModulesPage />} />
       </Route>

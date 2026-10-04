@@ -118,14 +118,17 @@ function DetectionTable({
 export function FrameResults({
   frame,
   showAll = false,
+  emptyMessage = 'No frame yet.',
 }: {
   frame: FrameSummary | null;
   showAll?: boolean;
+  /** Shown while `frame` is null. */
+  emptyMessage?: string;
 }) {
   if (!frame) {
     return (
       <Panel title="Current frame">
-        <p className="empty">No frame yet.</p>
+        <p className="empty">{emptyMessage}</p>
       </Panel>
     );
   }
