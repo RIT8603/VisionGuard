@@ -78,6 +78,7 @@ BUILTIN_MODULES: Dict[str, str] = {
     # -- Phase 9 (higher-level analysis) --
     "restricted_zone": "computer_vision.modules.analysis.zone:RestrictedZoneModule",
     "attendance": "computer_vision.modules.analysis.attendance:AttendanceModule",
+    "crowd_alert": "computer_vision.modules.analysis.crowd_alert:CrowdAlertModule",
     # -- Behaviour and scene analysis (no model of their own) --
     "low_light": "computer_vision.modules.analysis.low_light:LowLightModule",
     "loitering": "computer_vision.modules.analysis.loitering:LoiteringModule",

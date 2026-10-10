@@ -10,6 +10,7 @@ import sys
 import cv2
 
 from computer_vision.core.config import CaptureBackend, VideoConfig
+from computer_vision.sources.base import SourceOpenError
 from computer_vision.sources.opencv_base import CaptureTarget, OpenCVVideoSource, fourcc_code
 from computer_vision.utils.logger import get_logger
 
@@ -35,11 +36,43 @@ class WebcamSource(OpenCVVideoSource):
 
     def __init__(self, config: VideoConfig, source_id: str | None = None) -> None:
         super().__init__(source_id or config.resolved_source_id(), config)
+        #: Set when the automatic backend failed and another one is being tried.
+        self._backend_override: CaptureBackend | None = None
 
     def _capture_target(self) -> CaptureTarget:
         return self._config.device_id
 
+    def open(self):
+        """Open the device; on Windows, fall back from MSMF to DirectShow.
+
+        Many HDMI/USB capture cards (and some webcams) only show up, or only
+        deliver frames, under DirectShow. When the backend was left on
+        ``auto`` that should not be the operator's problem to discover.
+        """
+        try:
+            return super().open()
+        except SourceOpenError:
+            if not (
+                sys.platform == "win32"
+                and self._config.backend is CaptureBackend.AUTO
+                and self._backend_override is None
+            ):
+                raise
+            logger.warning(
+                "Device %s did not open with MSMF; trying DirectShow (common for "
+                "HDMI capture cards)",
+                self._config.device_id,
+            )
+            self._backend_override = CaptureBackend.DSHOW
+            try:
+                return super().open()
+            except SourceOpenError:
+                self._backend_override = None
+                raise
+
     def _resolve_backend(self) -> CaptureBackend:
+        if self._backend_override is not None:
+            return self._backend_override
         if self._config.backend is not CaptureBackend.AUTO:
             return self._config.backend
         if sys.platform == "win32":
@@ -92,7 +125,10 @@ class WebcamSource(OpenCVVideoSource):
             f"Could not open webcam device {target} (backend '{backend.value}').\n"
             "Check that:\n"
             "  - a camera is connected and not in use by another application\n"
-            "  - the device id is correct (try 0, 1, 2 ...)\n"
+            "  - the device id is correct (try 0, 1, 2 ... - an HDMI capture card\n"
+            "    is usually 1 when the laptop has its own webcam)\n"
+            "  - an HDMI source is plugged in and playing (some cards give no\n"
+            "    video until they see a signal)\n"
             "  - camera access is permitted for this application\n"
             "    (Windows: Settings > Privacy & security > Camera)"
         )

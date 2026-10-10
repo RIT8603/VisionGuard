@@ -26,10 +26,12 @@ from computer_vision.core.config import (
 )
 from computer_vision.core.output import BaseOutputSink, MultiSink, WindowSink
 from backend.api.server import DashboardServer, DashboardUnavailableError
+from backend.services.alerts import AlertCenter
 from backend.services.camera_manager import CameraManager
 from backend.services.cameras import cameras_file_for, load_camera_file, save_camera_file
 from backend.services.hub import CameraHub
 from backend.services.reload import ReloadController
+from backend.services.settings import SettingsManager, with_module_settings
 from backend.services.runtime import (
     FAILURE_FATAL,
     CameraRuntime,
@@ -40,6 +42,7 @@ from backend.services.runtime import (
     run_group,
     specs_from_cameras,
     specs_from_video,
+    with_enabled_modules,
 )
 from computer_vision.core.pipeline import RunLimits
 from computer_vision.modules.base import ModuleError
@@ -172,6 +175,7 @@ def start_dashboard(
     config: VisionGuardConfig,
     hub: CameraHub,
     reload: ReloadController,
+    settings: SettingsManager | None = None,
 ) -> Tuple["DashboardServer", CameraManager]:
     """Start the dashboard server over ``hub``'s cameras."""
     from backend.api.server import AccessPolicy, DashboardServer
@@ -202,6 +206,7 @@ def start_dashboard(
         known_modules=frozenset(ModuleRegistry.known_names()),
         hub=hub,
         cameras=manager,
+        settings=settings,
     )
     server.start()  # raises OSError if the port is taken
 
@@ -252,25 +257,8 @@ def initial_cameras(
     return specs_from_video(config), "video"
 
 
-def _with_enabled_modules(config: VisionGuardConfig, enabled: Iterable[str]) -> VisionGuardConfig:
-    """A copy of ``config`` with exactly ``enabled`` turned on, nothing else touched.
-
-    Built with ``model_copy`` rather than a dump-and-revalidate round trip so
-    the dashboard's ``auth_token`` (a ``SecretStr``) is carried over as-is
-    instead of risking its masked ``"**********"`` JSON form leaking in.
-    """
-    from computer_vision.core.config import ModuleConfig
-
-    wanted = set(enabled)
-    new_modules = {
-        name: module_cfg.model_copy(update={"enabled": name in wanted})
-        for name, module_cfg in config.modules.items()
-    }
-    # The API only accepts names ModuleRegistry already knows, but a name the
-    # config file never listed at all has no existing ModuleConfig to copy.
-    for name in wanted - set(new_modules):
-        new_modules[name] = ModuleConfig(enabled=True)
-    return config.model_copy(update={"modules": new_modules})
+# Kept under its old name: the module-reload path and its tests use it.
+_with_enabled_modules = with_enabled_modules
 
 
 def _persist_enabled_modules(config_path: Path, enabled: Iterable[str]) -> None:
@@ -298,6 +286,37 @@ def _persist_enabled_modules(config_path: Path, enabled: Iterable[str]) -> None:
         config_path.write_text(text, encoding="utf-8")
     except OSError as exc:
         logger.warning("Could not persist module selection to %s: %s", config_path, exc)
+
+
+def _persist_module_settings(config_path: Path, changes: Dict[str, Dict[str, Any]]) -> None:
+    """Best-effort: rewrite changed settings in place in the YAML file.
+
+    Like :func:`_persist_enabled_modules` this only replaces the value on a
+    ``    <key>: <value>`` line that already exists inside the module's block,
+    keeping any trailing comment, so the file keeps its shape. A setting the
+    file does not list stays in effect for this run only.
+    """
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not persist module settings to %s: %s", config_path, exc)
+        return
+
+    for name, values in changes.items():
+        block = re.search(rf"(?m)^  {re.escape(name)}:[ \t]*\n((?:(?:    .*|[ \t]*)\n)*)", text)
+        if block is None:
+            continue
+        body = block.group(1)
+        for key, value in values.items():
+            shown = ("true" if value else "false") if isinstance(value, bool) else str(value)
+            line = re.compile(rf"(?m)^(    {re.escape(key)}:[ \t]*)[^#\n]*?([ \t]*(?:#.*)?)$")
+            body = line.sub(lambda m: m.group(1) + shown + m.group(2), body, count=1)
+        text = text[: block.start(1)] + body + text[block.end(1):]
+
+    try:
+        config_path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not persist module settings to %s: %s", config_path, exc)
 
 
 def _has_window(sink: BaseOutputSink) -> bool:
@@ -401,7 +420,10 @@ def run(args: argparse.Namespace) -> int:
     if len(specs) > 1:
         logger.info("Running %d cameras: %s", len(specs), ", ".join(s.id for s in specs))
 
-    hub = CameraHub(max_events=config.dashboard.max_events)
+    hub = CameraHub(
+        max_events=config.dashboard.max_events,
+        alerts=AlertCenter.from_config(config.dashboard.alerts),
+    )
     hub.configure([(s.id, s.name, s.video.source.value) for s in specs])
     use_dashboard = config.dashboard.enabled
 
@@ -413,10 +435,12 @@ def run(args: argparse.Namespace) -> int:
     dashboard: DashboardServer | None = None
     reload: ReloadController | None = None
     manager: CameraManager | None = None
+    settings: SettingsManager | None = None
     if use_dashboard:
         reload = ReloadController()
+        settings = SettingsManager(reload, editable=config.dashboard.allow_settings_edit)
         try:
-            dashboard, manager = start_dashboard(config, hub, reload)
+            dashboard, manager = start_dashboard(config, hub, reload, settings)
         except DashboardUnavailableError as exc:
             cleanup_runtimes(runtimes)
             print(f"\n[dashboard error] {exc}\n", file=sys.stderr)
@@ -449,7 +473,11 @@ def run(args: argparse.Namespace) -> int:
             hub.resume_all()
         if manager is not None:
             current, details = describe_specs(specs)
-            manager.set_current(current, details)
+            manager.set_current(
+                current, details, shared_modules=config.enabled_module_names()
+            )
+        if settings is not None:
+            settings.set_current(config)
 
         if _has_window(runtimes[0].sink):
             logger.info("Press 'q' or ESC in the preview window to stop")
@@ -460,8 +488,9 @@ def run(args: argparse.Namespace) -> int:
 
         modules_req = reload.pop() if reload is not None else None
         cameras_req = reload.pop_cameras() if reload is not None else None
+        settings_req = reload.pop_settings() if reload is not None else None
 
-        if modules_req is None and cameras_req is None:
+        if modules_req is None and cameras_req is None and settings_req is None:
             # Nothing asked for a change. With several cameras and a dashboard,
             # staying up lets the operator fix a bad camera from the page
             # instead of the whole program exiting under them.
@@ -485,7 +514,8 @@ def run(args: argparse.Namespace) -> int:
                 break
             modules_req = reload.pop()
             cameras_req = reload.pop_cameras()
-            if modules_req is None and cameras_req is None:
+            settings_req = reload.pop_settings()
+            if modules_req is None and cameras_req is None and settings_req is None:
                 break
 
         # ---- apply the requested change ----
@@ -499,9 +529,14 @@ def run(args: argparse.Namespace) -> int:
                 ", ".join(cam.id for cam in cameras_req),
             )
 
+        if settings_req is not None:
+            logger.info("Applying settings change from the dashboard: %s", settings_req)
+
         new_config = (
             _with_enabled_modules(config, modules_req) if modules_req is not None else config
         )
+        if settings_req is not None:
+            new_config = with_module_settings(new_config, settings_req)
         new_specs = (
             specs_from_cameras(config, cameras_req) if cameras_req is not None else specs
         )
@@ -522,6 +557,8 @@ def run(args: argparse.Namespace) -> int:
 
         if modules_req is not None:
             _persist_enabled_modules(config_path, modules_req)
+        if settings_req is not None:
+            _persist_module_settings(config_path, settings_req)
         if cameras_req is not None:
             try:
                 save_camera_file(cameras_file, cameras_req)
