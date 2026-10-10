@@ -1,4 +1,5 @@
 import type { CameraInfo, CameraInput, SourceType } from '../api/types';
+import { backendKeysFor, catalogIdsFor } from '../content/moduleCatalog';
 
 /**
  * The editable form of one camera.
@@ -18,6 +19,10 @@ export interface CameraDraft {
   deviceId: string;
   path: string;
   loop: boolean;
+  /** False: follow the Modules page. True: run exactly `moduleIds`. */
+  ownModules: boolean;
+  /** Catalogue ids chosen for this camera; kept while `ownModules` is off. */
+  moduleIds: string[];
 }
 
 let nextKey = 1;
@@ -32,6 +37,8 @@ export function blankDraft(): CameraDraft {
     deviceId: '0',
     path: '',
     loop: false,
+    ownModules: false,
+    moduleIds: [],
   };
 }
 
@@ -48,6 +55,8 @@ export function draftFromCamera(camera: CameraInfo): CameraDraft {
     deviceId: String(camera.device_id ?? 0),
     path: camera.path ?? '',
     loop: camera.loop ?? false,
+    ownModules: Array.isArray(camera.modules),
+    moduleIds: Array.isArray(camera.modules) ? catalogIdsFor(camera.modules) : [],
   };
 }
 
@@ -66,6 +75,8 @@ export function toInput(draft: CameraDraft): CameraInput {
     input.path = draft.path.trim();
     if (draft.loop) input.loop = true;
   }
+  // Dependencies included; an empty list means "video only" for this camera.
+  if (draft.ownModules) input.modules = backendKeysFor(new Set(draft.moduleIds));
   return input;
 }
 
@@ -86,7 +97,7 @@ export function validateDrafts(drafts: readonly CameraDraft[]): (string | null)[
     }
     const device = Number(draft.deviceId);
     if (draft.deviceId.trim() === '' || !Number.isInteger(device) || device < 0) {
-      return 'The webcam number must be 0 or higher.';
+      return 'The device number must be 0 or higher.';
     }
     const firstUse = devices.get(device);
     if (firstUse !== undefined) return `Webcam ${device} is already used by camera ${firstUse + 1}.`;

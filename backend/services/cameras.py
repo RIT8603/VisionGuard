@@ -82,6 +82,8 @@ def public_view(camera: CameraConfig) -> Dict[str, Any]:
         "rtsp_url": mask_url(camera.rtsp_url),
         "path": camera.path,
         "loop": camera.loop,
+        # None = follows the shared selection; a list = this camera's own.
+        "modules": None if camera.modules is None else list(camera.modules),
     }
 
 
@@ -152,6 +154,8 @@ def save_camera_file(path: Path, cameras: Sequence[CameraConfig]) -> None:
                 entry["loop"] = True
         else:
             entry["device_id"] = cam.device_id
+        if cam.modules is not None:
+            entry["modules"] = list(cam.modules)
         entries.append(entry)
 
     header = (
@@ -215,14 +219,20 @@ def parse_cameras(
     *,
     max_cameras: int,
     existing: Sequence[CameraConfig] = (),
+    known_modules: Iterable[str] | None = None,
 ) -> Tuple[List[CameraConfig], List[str]]:
     """Validate a list of camera dicts. Returns ``(cameras, errors)``.
 
     ``existing`` is the running list, used to restore a masked password and to
     keep ids stable. Entries without an ``id`` get ``cam-N``. All problems are
     reported at once, each prefixed with the camera's position.
+
+    ``known_modules`` (when given) is the catalogue a camera's own ``modules``
+    list is checked against, so a misspelled name is refused here rather than
+    when the pipeline is rebuilt.
     """
     items = list(items)
+    known = None if known_modules is None else set(known_modules)
     errors: List[str] = []
     if not items:
         return [], ["at least one camera is required"]
@@ -270,6 +280,12 @@ def parse_cameras(
         except TypeError:
             errors.append(f"{label}: unreadable fields")
             continue
+
+        if known is not None and camera.modules:
+            unknown = sorted(set(camera.modules) - known)
+            if unknown:
+                errors.append(f"{label}: unknown module(s): {', '.join(unknown)}")
+                continue
 
         if camera.id in seen_ids:
             errors.append(f"{label}: duplicate id '{camera.id}'")

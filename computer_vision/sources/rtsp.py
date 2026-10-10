@@ -39,6 +39,7 @@ import numpy as np
 from computer_vision.core.config import CaptureBackend, VideoConfig
 from computer_vision.sources.base import FramePacket, FrameReadError, SourceOpenError
 from computer_vision.sources.opencv_base import CaptureTarget, OpenCVVideoSource
+from computer_vision.sources.rtsp_probe import probe_rtsp
 from computer_vision.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -257,6 +258,9 @@ class RTSPSource(OpenCVVideoSource):
         self._reconnects = 0
         self._total_reconnects = 0
         self._total_dropped = 0
+        #: The transport actually in use; starts as configured and may switch
+        #: once if the other one is the only one that works.
+        self._transport = config.rtsp_transport
 
     # ------------------------------------------------------------------ #
     # Identity
@@ -306,7 +310,7 @@ class RTSPSource(OpenCVVideoSource):
     def _open_failure_message(self, target: CaptureTarget, backend: CaptureBackend) -> str:
         return (
             f"Could not open RTSP stream {self.safe_url} "
-            f"(transport={self._config.rtsp_transport}).\n"
+            f"(transport={self._transport}).\n"
             "Check that:\n"
             "  - the camera is reachable from this host\n"
             "  - the URL, credentials and stream path are correct\n"
@@ -325,7 +329,7 @@ class RTSPSource(OpenCVVideoSource):
         """
         timeout_us = int(max(0.0, self._config.open_timeout_sec) * 1_000_000)
         options = [
-            f"rtsp_transport;{self._config.rtsp_transport}",
+            f"rtsp_transport;{self._transport}",
             # 'timeout' is the modern spelling, 'stimeout' the older one.
             # FFmpeg ignores options it does not recognise, so send both.
             f"timeout;{timeout_us}",
@@ -369,13 +373,52 @@ class RTSPSource(OpenCVVideoSource):
             )
 
     def open(self):
-        with self._ffmpeg_environment():
-            info = super().open()
+        try:
+            with self._ffmpeg_environment():
+                info = super().open()
+        except SourceOpenError as exc:
+            info = self._open_after_failure(exc)
 
         self._reconnects = 0
         self._start_reader()
         logger.info("RTSP stream live: %s", self.safe_url)
         return info
+
+    def _open_after_failure(self, exc: SourceOpenError):
+        """Find out why opening failed; retry once on the other transport if that may help.
+
+        OpenCV says nothing beyond "not opened". Asking the server directly
+        separates a blocked network, a wrong path and an expired token. When
+        the server itself is happy, the transport is the usual culprit (UDP
+        blocked by a firewall, or a server that only speaks one of them).
+        """
+        if not self.url.lower().startswith(("rtsp://", "rtsps://")):
+            raise exc  # a configuration mistake, already explained
+        timeout = max(1.0, min(5.0, self._config.open_timeout_sec or 5.0))
+        reason = probe_rtsp(self.url, timeout=timeout)
+        if reason is not None:
+            raise SourceOpenError(
+                f"Could not open RTSP stream {self.safe_url}: {reason}."
+            ) from exc
+
+        configured = self._transport
+        self._transport = "udp" if configured == "tcp" else "tcp"
+        logger.warning(
+            "RTSP %s did not open over %s although the server answers; trying %s",
+            self.safe_url,
+            configured,
+            self._transport,
+        )
+        try:
+            with self._ffmpeg_environment():
+                return super().open()
+        except SourceOpenError:
+            self._transport = configured
+            raise SourceOpenError(
+                f"Could not open RTSP stream {self.safe_url}: the server answers, but "
+                "no video could be read over TCP or UDP. The stream may use a codec "
+                "this OpenCV build cannot decode, or it has no video track."
+            ) from exc
 
     def _capture_params(self) -> list[int]:
         """Timeouts must be passed at construction, not set afterwards.

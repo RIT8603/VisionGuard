@@ -804,3 +804,80 @@ class TestMainEndToEnd:
         worker.join(timeout=60)
         assert not worker.is_alive()
         assert exit_codes and exit_codes[0] in (0, 3)
+
+
+# --------------------------------------------------------------------------- #
+# Per-camera module selection
+# --------------------------------------------------------------------------- #
+
+
+class TestPerCameraModules:
+    def test_default_is_to_follow_the_shared_selection(self):
+        assert cam().modules is None and public_view(cam())["modules"] is None
+
+    def test_names_are_cleaned_and_deduplicated(self):
+        chosen = cam(modules=[" person_detection ", "person_detection", "low_light"])
+        assert chosen.modules == ["person_detection", "low_light"]
+        assert public_view(chosen)["modules"] == ["person_detection", "low_light"]
+
+    def test_an_empty_list_is_kept_as_video_only(self):
+        assert cam(modules=[]).modules == []
+
+    def test_unknown_names_are_refused_when_a_catalogue_is_given(self):
+        item = {"source": "webcam", "modules": ["person_detection", "no_such_module"]}
+        _, errors = parse_cameras([item], max_cameras=4, known_modules=["person_detection"])
+        assert errors and "no_such_module" in errors[0]
+        cams, errors = parse_cameras([item], max_cameras=4)
+        assert not errors and cams[0].modules == ["person_detection", "no_such_module"]
+
+    def test_file_round_trip_keeps_none_and_empty_apart(self, tmp_path):
+        path = tmp_path / "cameras.yaml"
+        cams = [
+            cam("a"),
+            cam("b", modules=[]),
+            cam("c", modules=["person_detection", "person_tracking"]),
+        ]
+        save_camera_file(path, cams)
+        assert load_camera_file(path) == cams
+        assert "modules" not in yaml.safe_load(path.read_text())["cameras"][0]
+
+    def test_api_lists_and_accepts_modules(self, api):
+        client, reload, manager, _ = api
+        manager.set_current(
+            [cam("gate", modules=["low_light"]), CameraConfig(id="lab", source="webcam")],
+            shared_modules=["person_detection"],
+        )
+        body = client.get("/api/cameras").json()
+        assert body["shared_modules"] == ["person_detection"]
+        assert [c["modules"] for c in body["cameras"]] == [["low_light"], None]
+
+        ok = client.post(
+            "/api/cameras",
+            json={"cameras": [{"id": "lab", "source": "webcam", "modules": ["fall_detection"]}]},
+        )
+        assert ok.status_code == 202 and ok.json()["cameras"][0]["modules"] == ["fall_detection"]
+        assert reload.pop_cameras()[0].modules == ["fall_detection"]
+
+        bad = client.post(
+            "/api/cameras",
+            json={"cameras": [{"id": "lab", "source": "webcam", "modules": ["nope"]}]},
+        )
+        assert bad.status_code == 400 and "nope" in bad.json()["error"]
+
+    def test_each_camera_builds_only_its_own_modules(self, tmp_path, clips):
+        config = load_config(str(_config(tmp_path)))
+        cams = [
+            CameraConfig(id="shared", source="file", path=str(clips[0])),
+            CameraConfig(id="none", source="file", path=str(clips[1]), modules=[]),
+            CameraConfig(
+                id="own", source="file", path=str(clips[1]), modules=["person_detection"]
+            ),
+        ]
+        runtimes = build_runtimes(config, specs_from_cameras(config, cams))
+        names = [[m.module_name for m in rt.modules] for rt in runtimes]
+        assert names == [["person_detection"], [], ["person_detection"]]
+        assert runtimes[1].config.enabled_module_names() == []
+        # The shared config itself is untouched.
+        assert config.enabled_module_names() == ["person_detection"]
+        assert run_group(runtimes, RunLimits()) is False
+        assert [rt.stats.frames_processed for rt in runtimes] == [15, 15, 15]

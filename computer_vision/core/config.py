@@ -17,7 +17,7 @@ import os
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Mapping
+from typing import Any, Dict, List, Literal, Mapping
 
 import yaml
 from pydantic import (
@@ -281,6 +281,30 @@ class CameraConfig(BaseModel):
     rtsp_url: str | None = None
     path: str | None = None
     loop: bool = False
+    modules: List[str] | None = Field(
+        default=None,
+        description=(
+            "AI modules this camera runs, dependencies included. Omit to follow "
+            "the shared selection (the `modules:` section / the Modules page); "
+            "an empty list means video only."
+        ),
+    )
+
+    @field_validator("modules")
+    @classmethod
+    def _validate_modules(cls, value: List[str] | None) -> List[str] | None:
+        if value is None:
+            return None
+        names: List[str] = []
+        for item in value:
+            name = item.strip()
+            if not name or len(name) > 64:
+                raise ValueError("module names must be 1-64 characters")
+            if name not in names:
+                names.append(name)
+        if len(names) > 64:
+            raise ValueError("at most 64 modules per camera")
+        return names
 
     @field_validator("id", mode="before")
     @classmethod
@@ -346,6 +370,11 @@ class CameraConfig(BaseModel):
             path=self.path,
             loop=self.loop,
         )
+        if self.source is VideoSourceType.FILE and data.get("playback_speed", 0) <= 0:
+            # 0 means "as fast as possible" - right for a benchmark run from
+            # the command line, wrong for a camera someone is watching: the
+            # video would race by and a short clip would end in seconds.
+            data["playback_speed"] = 1.0
         return VideoConfig(**data)
 
 
@@ -412,6 +441,29 @@ class ProcessingConfig(BaseModel):
         if value < 2:
             raise ValueError("processing.stats_window must be >= 2")
         return value
+
+
+class AlertsConfig(BaseModel):
+    """Which events become dashboard alerts, and how repeats are folded."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_severity: Literal["info", "warning", "critical"] = Field(
+        default="warning",
+        description="Events at or above this severity become alerts.",
+    )
+    dedupe_seconds: float = Field(
+        default=30.0,
+        ge=0,
+        description=(
+            "The same event about the same subject on the same camera within "
+            "this many seconds of the last one updates the open alert instead "
+            "of opening a new one. 0 = every event is its own alert."
+        ),
+    )
+    max_alerts: int = Field(
+        default=500, ge=1, le=10000, description="Alerts kept in memory; oldest acknowledged go first."
+    )
 
 
 class DashboardConfig(BaseModel):
@@ -484,6 +536,14 @@ class DashboardConfig(BaseModel):
         description=(
             "Most cameras one run may drive (1-32). Each camera is a full "
             "pipeline, so the real limit is your CPU, not this number."
+        ),
+    )
+    alerts: AlertsConfig = Field(default_factory=AlertsConfig)
+    allow_settings_edit: bool = Field(
+        default=True,
+        description=(
+            "Let the dashboard change modules' scalar settings (thresholds, "
+            "timers, severity) via POST /api/settings. False = read-only."
         ),
     )
     allow_camera_edit: bool = Field(

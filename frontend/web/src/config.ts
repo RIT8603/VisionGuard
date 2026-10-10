@@ -36,3 +36,6 @@ export const CAMERAS_POLL_MS = 1000;
 
 /** How often a camera thumbnail is replaced. Each refresh is one short request. */
 export const TILE_REFRESH_MS = 800;
+
+/** How often the alert list (and the nav badge) is refreshed. */
+export const ALERTS_POLL_MS = 2000;

@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Dict, List, Optional, Sequence
 
+from backend.services.alerts import AlertCenter
 from backend.services.state import DashboardState
 
 #: A camera that has published nothing for this long is reported as stalled.
@@ -40,8 +42,10 @@ class _Slot:
 class CameraHub:
     """Thread-safe registry of per-camera dashboard state."""
 
-    def __init__(self, max_events: int = 200) -> None:
+    def __init__(self, max_events: int = 200, alerts: AlertCenter | None = None) -> None:
         self._max_events = max_events
+        #: One alert center for every camera; each camera's state feeds it.
+        self.alerts = alerts if alerts is not None else AlertCenter()
         self._lock = threading.Lock()
         self._slots: Dict[str, _Slot] = {}
 
@@ -56,7 +60,11 @@ class CameraHub:
             for cam_id, name, source_type in cameras:
                 slot = self._slots.get(cam_id)
                 if slot is None:
-                    slot = _Slot(cam_id, name, source_type, DashboardState(max_events=self._max_events))
+                    state = DashboardState(
+                        max_events=self._max_events,
+                        on_events=partial(self.alerts.ingest, cam_id),
+                    )
+                    slot = _Slot(cam_id, name, source_type, state)
                 else:
                     slot.name, slot.source_type = name, source_type
                 slot.phase, slot.error = PHASE_STARTING, None

@@ -11,5 +11,7 @@ export const PATHS = {
     dashboard: '/portal/dashboard',
     cameras: '/portal/cameras',
     modules: '/portal/modules',
+    alerts: '/portal/alerts',
+    settings: '/portal/settings',
   },
 } as const;

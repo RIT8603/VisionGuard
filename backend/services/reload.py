@@ -13,7 +13,7 @@ replaces it, and the operator sees the latest selection win.
 from __future__ import annotations
 
 import threading
-from typing import Any, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 
 class ReloadController:
@@ -24,6 +24,7 @@ class ReloadController:
         self._trigger = threading.Event()
         self._pending: Optional[List[str]] = None
         self._pending_cameras: Optional[List[Any]] = None
+        self._pending_settings: Optional[Dict[str, Dict[str, Any]]] = None
         #: Set by the main loop after a failed attempt; read back by the API
         #: so a rejected selection can be surfaced instead of disappearing.
         self.last_error: Optional[str] = None
@@ -39,6 +40,19 @@ class ReloadController:
         """Queue ``cameras`` (validated ``CameraConfig`` objects) as the new camera set."""
         with self._lock:
             self._pending_cameras = list(cameras)
+            self.last_error = None
+        self._trigger.set()
+
+    def request_settings(self, module: str, settings: Dict[str, Any]) -> None:
+        """Queue new values for some of ``module``'s settings.
+
+        Unlike the lists above these accumulate: two changes to different
+        modules (or keys) before the loop applies them are both kept.
+        """
+        with self._lock:
+            pending = self._pending_settings or {}
+            pending.setdefault(module, {}).update(settings)
+            self._pending_settings = pending
             self.last_error = None
         self._trigger.set()
 
@@ -74,10 +88,21 @@ class ReloadController:
             self._clear_if_idle()
         return pending
 
+    def pop_settings(self) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Consume and clear the pending settings request, if any."""
+        with self._lock:
+            pending, self._pending_settings = self._pending_settings, None
+            self._clear_if_idle()
+        return pending
+
     def _clear_if_idle(self) -> None:
         # Caller holds the lock. The wake-up flag stays up while the other
         # kind of request is still waiting to be consumed.
-        if self._pending is None and self._pending_cameras is None:
+        if (
+            self._pending is None
+            and self._pending_cameras is None
+            and self._pending_settings is None
+        ):
             self._trigger.clear()
 
     def fail(self, message: str) -> None:
