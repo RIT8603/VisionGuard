@@ -293,6 +293,41 @@ class TestFailureContainment:
         assert result.to_dict()["error"]
 
 
+class TestEndReason:
+    """A source that dies mid-run is contained, but its reason must survive.
+
+    Before this, the dashboard only ever said "no frames received" for an RTSP
+    camera whose stream failed, hiding what actually went wrong.
+    """
+
+    def test_a_source_failure_is_kept_as_the_end_reason(self):
+        from computer_vision.sources.base import FrameReadError
+
+        pipeline, source, _ = make_pipeline(frames=5)
+
+        def dead_read():
+            raise FrameReadError("RTSP stream rtsp://cam/x?token=*** failed after 5 reconnect attempt(s)")
+
+        source.read = dead_read
+        stats = pipeline.run()
+
+        assert stats.frames_processed == 0
+        assert "failed after 5 reconnect" in pipeline.end_reason
+
+    def test_a_clean_end_has_no_reason(self):
+        pipeline, _, _ = make_pipeline(frames=3)
+        pipeline.run()
+        assert pipeline.end_reason is None
+
+    def test_a_silent_source_reports_the_stall(self):
+        pipeline, source, _ = make_pipeline(
+            frames=5, config_overrides={"processing": {"show_window": False, "target_width": None, "stall_timeout_sec": 0.05}}
+        )
+        source.read = lambda: None
+        pipeline.run()
+        assert pipeline.end_reason and "no frame arrived" in pipeline.end_reason
+
+
 class TestNullSink:
     def test_headless_sink_never_stops_the_run(self, frame_context):
         assert NullSink(log_every=1).emit(frame_context, PipelineStats()) is True

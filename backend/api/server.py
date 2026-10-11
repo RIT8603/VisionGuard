@@ -1,13 +1,16 @@
 """HTTP server for the dashboard.
 
 Runs on a background thread so the pipeline keeps the main thread. The server
-reads :class:`DashboardState` for everything except two endpoints:
+reads :class:`DashboardState` for everything except a few narrow writes:
 ``POST /api/modules`` lets an operator change which AI modules are enabled, and
 ``POST /api/cameras`` lets them change which cameras are watched. Both are
 narrow by design: modules can only be toggled (by name, from the catalogue the
 platform already knows), and a camera entry is validated to be a webcam index,
 a local video file or an ``rtsp://`` URL - nothing else is ever opened. Neither
-can change a module's parameters or reach beyond the video sources.
+can change a module's parameters or reach beyond the video sources. The
+alert endpoints (``POST /api/alerts/<id>/ack``, ``POST /api/alerts/ack``)
+only mark alerts as seen, and ``POST /api/settings`` changes a module's scalar
+tuning values (thresholds, timers, severity) - never a path, model or URL.
 
 With several cameras every read endpoint takes ``?camera=<id>``; without it
 they answer for the first camera, exactly as a single-camera install always did.
@@ -41,14 +44,23 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import FrozenSet, Iterable, Optional, Sequence
+from typing import FrozenSet, Iterable, Literal, Optional, Sequence
 from urllib.parse import parse_qs, quote, unquote
 
+from backend.services.alerts import AlertCenter
 from backend.services.camera_manager import CameraManager
 from backend.services.hub import CameraHub
 from backend.services.reload import ReloadController
+from backend.services.settings import SettingsManager
 from backend.services.state import DashboardState
 from computer_vision.utils.logger import get_logger
+
+try:
+    # Module level, not inside build_app: with postponed annotations FastAPI
+    # resolves the ``request: Request`` hint through this module's globals.
+    from starlette.requests import Request
+except ImportError:  # pragma: no cover - dashboard dependencies missing
+    Request = None  # type: ignore[assignment,misc]
 
 logger = get_logger(__name__)
 
@@ -284,6 +296,7 @@ def build_app(
     known_modules: FrozenSet[str] = frozenset(),
     hub: CameraHub | None = None,
     cameras: CameraManager | None = None,
+    settings: SettingsManager | None = None,
 ):
     """Create the FastAPI application bound to ``state``.
 
@@ -314,6 +327,15 @@ def build_app(
     poll_interval = min(0.1, max(0.02, 0.5 / stream_fps)) if stream_fps > 0 else 0.02
 
     app = FastAPI(title="VisionGuard AI", docs_url=None, redoc_url=None)
+
+    # Every camera feeds one alert center. A bare app (tests, one state, no
+    # hub) gets its own, fed by that state unless something already listens.
+    if hub is not None:
+        alerts = hub.alerts
+    else:
+        alerts = AlertCenter()
+        if state.on_events is None:
+            state.on_events = lambda events: alerts.ingest("default", events)
 
     def state_for(camera: Optional[str]) -> Optional[DashboardState]:
         """The state for ``camera``; None when there is no such camera."""
@@ -348,6 +370,49 @@ def build_app(
             {"events": chosen.events_since(since, limit), "last_id": chosen.last_event_id}
         )
 
+    @app.get("/api/alerts")
+    def list_alerts(
+        status: Literal["open", "acknowledged", "all"] = Query("all"),
+        camera: Optional[str] = Query(None, max_length=64),
+        limit: int = Query(100, ge=1, le=500),
+    ):
+        return JSONResponse(alerts.listing(status=status, camera=camera, limit=limit))
+
+    @app.post("/api/alerts/{alert_id}/ack", include_in_schema=False)
+    def acknowledge_alert(alert_id: int):
+        """Mark one alert as seen. Changes nothing but the alert's status."""
+        alert = alerts.acknowledge(alert_id)
+        if alert is None:
+            return JSONResponse({"error": "unknown alert"}, status_code=404)
+        return JSONResponse(alert)
+
+    @app.post("/api/alerts/ack", include_in_schema=False)
+    def acknowledge_alerts(camera: Optional[str] = Query(None, max_length=64)):
+        """Acknowledge every open alert, or only one camera's."""
+        return JSONResponse({"acknowledged": alerts.acknowledge_all(camera)})
+
+    @app.get("/api/settings")
+    def list_settings():
+        if settings is None:
+            return JSONResponse({"editable": False, "apply_error": None, "modules": {}})
+        return JSONResponse(settings.listing())
+
+    @app.post("/api/settings", include_in_schema=False)
+    def set_settings(payload: dict = Body(...)):
+        """Change some of one module's tuning values. Queued, like a module change.
+
+        ``payload`` is ``{"module": <name>, "settings": {<key>: <value>, ...}}``.
+        Only scalar settings the module already has are accepted; see
+        ``backend.services.settings`` for exactly which.
+        """
+        if settings is None:
+            return JSONResponse(
+                {"error": "This run was started without --dashboard settings support."},
+                status_code=503,
+            )
+        code, body = settings.submit(payload.get("module"), payload.get("settings"))
+        return JSONResponse(body, status_code=code)
+
     @app.get("/api/cameras")
     def list_cameras():
         if cameras is not None:
@@ -377,6 +442,34 @@ def build_app(
             )
         code, body = cameras.submit(payload.get("cameras"))
         return JSONResponse(body, status_code=code)
+
+    @app.get("/api/videos")
+    def list_uploaded_videos():
+        from backend.services.uploads import list_videos
+
+        return JSONResponse({"videos": list_videos()})
+
+    @app.post("/api/videos", include_in_schema=False)
+    async def upload_video(request: Request, name: str = Query(..., max_length=200)):
+        """Save a video sent as the raw request body; answer with its path.
+
+        Raw body rather than a multipart form: no extra dependency, and the
+        file streams straight to disk however large it is. Only allowed where
+        cameras may be edited, since its only use is a new ``file`` camera.
+        """
+        from backend.services.uploads import UploadError, save_upload
+
+        if cameras is None or not cameras.editable:
+            return JSONResponse(
+                {"error": "Camera editing is turned off, so videos cannot be uploaded."},
+                status_code=403,
+            )
+        try:
+            saved = await save_upload(name, request.stream())
+        except UploadError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        logger.info("Video uploaded: %s (%d bytes)", saved["name"], saved["size"])
+        return JSONResponse(saved, status_code=201)
 
     @app.post("/api/modules", include_in_schema=False)
     def set_modules(payload: dict = Body(...)):
@@ -434,6 +527,7 @@ def build_app(
         )
 
     app.state.stream_slots = slots
+    app.state.alerts = alerts
     return _AccessMiddleware(app, policy)
 
 
@@ -533,8 +627,10 @@ class DashboardServer:
         known_modules: FrozenSet[str] = frozenset(),
         hub: CameraHub | None = None,
         cameras: CameraManager | None = None,
+        settings: SettingsManager | None = None,
     ) -> None:
         self._hub = hub
+        self._settings = settings
         self._cameras = cameras
         self._state = state
         self._host = host
@@ -595,6 +691,7 @@ class DashboardServer:
             known_modules=self._known_modules,
             hub=self._hub,
             cameras=self._cameras,
+            settings=self._settings,
         )
         self._socket = _bind_socket(self._host, self._port)  # OSError -> caller
 

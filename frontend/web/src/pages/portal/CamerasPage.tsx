@@ -4,6 +4,7 @@ import { PATHS } from '../../app/paths';
 import { ApiError } from '../../api/client';
 import { setCameras } from '../../api/endpoints';
 import { CameraSlotForm } from '../../components/cameras/CameraSlotForm';
+import { catalogIdsFor } from '../../content/moduleCatalog';
 import { usePipeline } from '../../state/PipelineProvider';
 import {
   blankDraft,
@@ -17,7 +18,7 @@ import {
 type ApplyState = 'idle' | 'applying' | 'applied' | 'error';
 
 export function CamerasPage() {
-  const { cameras, reachable } = usePipeline();
+  const { cameras } = usePipeline();
   const maxCameras = cameras.data?.max_cameras ?? 8;
   const editable = cameras.data?.editable ?? false;
 
@@ -45,7 +46,16 @@ export function CamerasPage() {
   const hasProblems = problems.some((problem) => problem !== null);
   const dirty = seeded.current && signature(drafts) !== applied;
   const busy = apply.state === 'applying';
-  const locked = !editable || !reachable;
+  // Editing depends only on the backend's own switch (allow_camera_edit),
+  // never on whether any camera is live: a camera that is down because its
+  // address is wrong can only be fixed from this form.
+  const loaded = cameras.data !== null;
+  const locked = loaded && !editable;
+  // The camera list itself is not answering - the backend process is away.
+  const unreachable = cameras.error !== null;
+  // Any camera that is down can be retried by re-applying, even unchanged.
+  const anyDown =
+    cameras.data?.cameras.some((c) => c.status === 'offline' || c.status === 'failed') ?? false;
 
   const parsedCount = Number(countText);
   const countValid =
@@ -114,6 +124,8 @@ export function CamerasPage() {
     draft.id ? cameras.data?.cameras.find((c) => c.id === draft.id) : undefined;
 
   const applyError = cameras.data?.apply_error ?? null;
+  const sharedKeys = cameras.data?.shared_modules;
+  const sharedModuleIds = Array.isArray(sharedKeys) ? catalogIdsFor(sharedKeys) : null;
 
   return (
     <>
@@ -124,20 +136,22 @@ export function CamerasPage() {
           <h2 className="page-title">Cameras</h2>
           <p className="page-intro">
             Say how many cameras you have, then fill in each one. Every camera is analysed on its
-            own with the modules chosen on the Modules page; the AI models are shared, so more
-            cameras means a slower frame rate on each, not more memory.
+            own, with the modules chosen on the Modules page or with its own set picked here, so
+            each camera can do a different job. The AI models are shared, so more cameras means a
+            slower frame rate on each, not more memory.
           </p>
         </header>
 
-        {!reachable && (
+        {unreachable && (
           <div className="notice notice-crit" role="alert">
             <span className="notice-word">Offline</span>
             <div className="notice-body">
-              The backend is not reachable, so cameras cannot be changed right now.
+              The backend is not answering. You can keep editing; Apply will go through once it
+              is running again.
             </div>
           </div>
         )}
-        {reachable && !editable && (
+        {!unreachable && locked && (
           <div className="notice notice-warn" role="note">
             <span className="notice-word">Locked</span>
             <div className="notice-body">
@@ -225,9 +239,9 @@ export function CamerasPage() {
             type="button"
             className="summary-btn"
             onClick={onApply}
-            disabled={locked || busy || !dirty}
+            disabled={locked || busy || !loaded || (!dirty && !anyDown)}
           >
-            {busy ? 'Applying…' : 'Apply cameras'}
+            {busy ? 'Applying…' : !dirty && anyDown ? 'Retry cameras' : 'Apply cameras'}
           </button>
         </div>
 
@@ -241,13 +255,14 @@ export function CamerasPage() {
               problem={showProblems ? problems[index] : null}
               disabled={locked || busy}
               canRemove={drafts.length > 1}
+              sharedModuleIds={sharedModuleIds}
               onChange={(change) => patch(draft.key, change)}
               onRemove={() => remove(draft.key)}
             />
           ))}
         </ol>
 
-        {drafts.length === 0 && reachable && <p className="empty">Loading the camera list…</p>}
+        {!loaded && !unreachable && <p className="empty">Loading the camera list…</p>}
       </div>
     </>
   );

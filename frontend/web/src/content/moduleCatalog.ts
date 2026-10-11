@@ -76,8 +76,8 @@ export const MODULE_CATALOG: readonly CatalogModule[] = [
     category: 'Detection & tracking',
     status: 'available',
     summary: 'Keeps a live count of people in view against a configurable threshold.',
-    note: 'Counts only; crowd events are planned.',
-    backendModules: ['person_detection', 'crowd_detection'],
+    note: 'Raises an event once a crowd has lasted a few seconds, and again when it clears.',
+    backendModules: ['person_detection', 'crowd_detection', 'crowd_alert'],
   },
   {
     id: 'anpr',
@@ -233,3 +233,28 @@ export const CATEGORIES: readonly ModuleCategory[] = [
   'Safety & analysis',
   'Identity',
 ];
+
+/** Backend module keys a set of catalogue ids needs, dependencies included,
+ * in catalogue order. Planned items contribute nothing - there is no module
+ * to enable yet. */
+export function backendKeysFor(selected: ReadonlySet<string>): string[] {
+  const keys: string[] = [];
+  for (const module of MODULE_CATALOG) {
+    if (module.status === 'planned' || !selected.has(module.id)) continue;
+    for (const key of module.backendModules) {
+      if (!keys.includes(key)) keys.push(key);
+    }
+  }
+  return keys;
+}
+
+/** True when every backend module this catalogue entry needs is in `keys`. */
+export function isCoveredBy(module: CatalogModule, keys: ReadonlySet<string>): boolean {
+  return module.backendModules.length > 0 && module.backendModules.every((key) => keys.has(key));
+}
+
+/** The catalogue ids a set of backend module keys amounts to. */
+export function catalogIdsFor(keys: Iterable<string>): string[] {
+  const set = new Set(keys);
+  return MODULE_CATALOG.filter((module) => isCoveredBy(module, set)).map((module) => module.id);
+}

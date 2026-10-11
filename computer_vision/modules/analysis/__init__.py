@@ -12,6 +12,7 @@ Planned contents (see ROADMAP.md, Phase 9):
 
     zone.py           -> RestrictedZoneModule   (implemented)
     loitering.py      -> LoiteringModule        (implemented)
+    crowd_alert.py    -> CrowdAlertModule       (implemented)
     intrusion.py      -> IntrusionDetectionModule (implemented)
     tailgating.py     -> TailgatingModule       (implemented)
     abandoned_object.py -> AbandonedObjectModule (implemented)

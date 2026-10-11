@@ -1540,6 +1540,12 @@ a:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* A failure reason can span several lines (the RTSP open checklist). */
+.camera-slot-failure {
+  color: var(--crit);
+  white-space: pre-line;
+}
+
 /* Form fields (cameras page). */
 
 .field {

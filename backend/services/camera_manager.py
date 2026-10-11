@@ -16,6 +16,7 @@ from backend.services.cameras import parse_cameras, public_view
 from backend.services.hub import CameraHub
 from backend.services.reload import ReloadController
 from computer_vision.core.config import CameraConfig
+from computer_vision.modules.registry import ModuleRegistry
 
 
 class CameraManager:
@@ -36,6 +37,7 @@ class CameraManager:
         self._lock = threading.Lock()
         self._current: List[CameraConfig] = []
         self._details: Dict[str, Dict[str, Any]] = {}
+        self._shared_modules: List[str] | None = None
 
     @property
     def max_cameras(self) -> int:
@@ -46,17 +48,23 @@ class CameraManager:
         return self._editable and self._reload is not None
 
     def set_current(
-        self, cameras: Sequence[CameraConfig], details: Mapping[str, Mapping[str, Any]] | None = None
+        self,
+        cameras: Sequence[CameraConfig],
+        details: Mapping[str, Mapping[str, Any]] | None = None,
+        *,
+        shared_modules: Sequence[str] | None = None,
     ) -> None:
         """Record the camera list now running (main loop, after every rebuild).
 
         ``details`` can supply the public view for a camera that cannot be
         expressed as a :class:`CameraConfig` (a ``video:`` source with an
-        unusual URL scheme), keyed by id.
+        unusual URL scheme), keyed by id. ``shared_modules`` is the module
+        selection every camera without its own ``modules`` list follows.
         """
         with self._lock:
             self._current = list(cameras)
             self._details = {k: dict(v) for k, v in (details or {}).items()}
+            self._shared_modules = None if shared_modules is None else list(shared_modules)
 
     def current(self) -> List[CameraConfig]:
         with self._lock:
@@ -67,6 +75,7 @@ class CameraManager:
         with self._lock:
             by_id = {cam.id: public_view(cam) for cam in self._current}
             by_id.update({k: dict(v) for k, v in self._details.items()})
+            shared = None if self._shared_modules is None else list(self._shared_modules)
         rows = []
         for row in self._hub.describe():
             merged = {**by_id.get(row["id"], {}), **row}
@@ -75,6 +84,7 @@ class CameraManager:
             "cameras": rows,
             "max_cameras": self._max,
             "editable": self.editable,
+            "shared_modules": shared,
             "apply_error": self._reload.last_error if self._reload is not None else None,
         }
 
@@ -87,7 +97,12 @@ class CameraManager:
         if not isinstance(items, list):
             return 400, {"error": "'cameras' must be a list of camera objects"}
 
-        cameras, errors = parse_cameras(items, max_cameras=self._max, existing=self.current())
+        cameras, errors = parse_cameras(
+            items,
+            max_cameras=self._max,
+            existing=self.current(),
+            known_modules=ModuleRegistry.known_names(),
+        )
         if errors:
             return 400, {"error": "; ".join(errors)}
 

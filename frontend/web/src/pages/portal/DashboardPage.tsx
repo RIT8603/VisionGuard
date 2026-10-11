@@ -40,6 +40,8 @@ export function DashboardPage() {
             resolution={frame?.resolution}
             sourceLabel={selectedCamera?.name ?? data?.info.source_id}
             camera={cameraParam}
+            cameraStatus={selectedCamera?.status}
+            cameraError={selectedCamera?.error}
           />
           <StatsPanel stats={stats} eventCount={data?.event_count ?? null} />
           <FrameResults frame={frame} />

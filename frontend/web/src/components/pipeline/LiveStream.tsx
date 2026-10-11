@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { streamUrl } from '../../api/endpoints';
+import type { CameraStatus } from '../../api/types';
 import { STREAM_HOLD_MS, STREAM_RETRY_MS } from '../../config';
 import { DASH } from '../../lib/format';
 import { isReachable, type ViewState } from '../../state/viewState';
@@ -17,6 +18,10 @@ interface LiveStreamProps {
   sourceLabel?: string;
   /** Which camera to stream (null = the backend's first). */
   camera?: string | null;
+  /** The selected camera's own state, when several cameras run. */
+  cameraStatus?: CameraStatus;
+  /** Why the selected camera failed, if it did. */
+  cameraError?: string | null;
 }
 
 const OVERLAY_TEXT: Partial<Record<ViewState, string>> = {
@@ -45,8 +50,14 @@ export function LiveStream({
   resolution,
   sourceLabel,
   camera = null,
+  cameraStatus,
+  cameraError = null,
 }: LiveStreamProps) {
-  const shouldStream = active && isReachable(viewState);
+  // A failed or stopped camera has no stream to open: the backend ends the
+  // connection at once, which used to read as "Stream interrupted" and retry
+  // forever. Say what is actually wrong with that camera instead.
+  const cameraDown = cameraStatus === 'failed' || cameraStatus === 'offline';
+  const shouldStream = active && isReachable(viewState) && !cameraDown;
   const [nonce, setNonce] = useState(0);
   const [broken, setBroken] = useState(false);
   const [held, setHeld] = useState(false);
@@ -107,8 +118,17 @@ export function LiveStream({
   const reconnecting = broken && shouldStream;
   // With a held frame on screen a small tag says enough; covering the
   // picture with a message is for when there is no picture.
+  const cameraOverlay =
+    cameraStatus === 'failed'
+      ? `This camera failed: ${cameraError ?? 'see the Cameras page'}`
+      : cameraStatus === 'offline'
+        ? 'This camera has stopped (its video ended or it was switched off).'
+        : cameraStatus === 'starting' && !held
+          ? 'Camera starting…'
+          : null;
   const overlay =
-    reconnecting && !held ? 'Stream interrupted — reconnecting…' : OVERLAY_TEXT[viewState];
+    cameraOverlay ??
+    (reconnecting && !held ? 'Stream interrupted — reconnecting…' : OVERLAY_TEXT[viewState]);
   const aspectRatio = resolution ? `${resolution.width} / ${resolution.height}` : '16 / 9';
 
   return (
@@ -135,7 +155,9 @@ export function LiveStream({
             onError={() => setBroken(true)}
           />
         )}
-        {overlay && <div className="stream-overlay">{overlay}</div>}
+        {overlay && (
+          <div className={`stream-overlay${cameraDown ? ' is-failed' : ''}`}>{overlay}</div>
+        )}
         {reconnecting && held && <span className="stream-tag">Reconnecting</span>}
         {viewState === 'stale' && !reconnecting && <span className="stream-tag">Stale</span>}
       </div>

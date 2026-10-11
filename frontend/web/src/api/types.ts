@@ -104,7 +104,9 @@ export type KnownEventType =
   | 'low_light_ended'
   | 'weapon_detected'
   | 'plate_read'
-  | 'person_reidentified';
+  | 'person_reidentified'
+  | 'crowd_formed'
+  | 'crowd_cleared';
 
 /** Keys observed in the current analysis modules; any module may add others. */
 export interface EventSubject {
@@ -213,6 +215,8 @@ export interface CameraInfo {
   rtsp_url?: string | null;
   path?: string | null;
   loop?: boolean;
+  /** Backend module keys this camera runs on its own; null = the shared selection. */
+  modules?: string[] | null;
 }
 
 export interface CamerasResponse {
@@ -223,6 +227,8 @@ export interface CamerasResponse {
   editable: boolean;
   /** Why the last requested change could not be applied, if it could not. */
   apply_error: string | null;
+  /** Backend module keys of the shared selection (the Modules page). */
+  shared_modules?: string[] | null;
 }
 
 /** One camera in a POST /api/cameras body. Send only the field its source uses. */
@@ -235,10 +241,89 @@ export interface CameraInput {
   device_id?: number;
   path?: string;
   loop?: boolean;
+  /** This camera's own backend module keys. Omit to follow the shared selection. */
+  modules?: string[];
 }
 
 /** Response to POST /api/cameras. Acceptance only - cameras restart in the background. */
 export interface SetCamerasResponse {
   status: string;
   cameras: CameraInfo[];
+}
+
+/** Open until someone acknowledges it on the Alerts page. */
+export type AlertStatus = 'open' | 'acknowledged';
+
+/**
+ * One alert from GET /api/alerts: an event at or above the configured
+ * severity, with repeats of the same thing on the same camera folded in.
+ */
+export interface AlertInfo {
+  id: number;
+  camera: string;
+  event: KnownEventType | (string & {});
+  module: string;
+  severity: Severity;
+  subject: EventSubject;
+  data: EventData;
+  /** ISO 8601 timestamps of the first and latest folded event. */
+  first_seen: string;
+  last_seen: string;
+  /** How many events this alert stands for. */
+  count: number;
+  status: AlertStatus;
+  acknowledged_at: string | null;
+}
+
+export interface AlertsResponse {
+  /** Most recently updated first. */
+  alerts: AlertInfo[];
+  /** Across every camera and status filter. */
+  open_count: number;
+  open_critical: number;
+  total: number;
+  min_severity: Severity;
+}
+
+export interface AckAllResponse {
+  acknowledged: number;
+}
+
+/** How a setting is edited: a checkbox, a number field, or a severity picker. */
+export type SettingKind = 'bool' | 'int' | 'float' | 'severity';
+
+export interface SettingValue {
+  value: boolean | number | Severity;
+  kind: SettingKind;
+}
+
+export interface ModuleSettings {
+  enabled: boolean;
+  settings: Record<string, SettingValue>;
+}
+
+/** GET /api/settings: each module's scalar settings the dashboard may change. */
+export interface SettingsResponse {
+  editable: boolean;
+  /** Why the last change could not be applied; null when it was. */
+  apply_error: string | null;
+  modules: Record<string, ModuleSettings>;
+}
+
+export interface SetSettingsResponse {
+  status: string;
+  module: string;
+  settings: Record<string, boolean | number | string>;
+}
+
+/** A video saved on the machine running VisionGuard (`/api/videos`). */
+export interface UploadedVideo {
+  name: string;
+  /** Absolute path on that machine: what a file camera's `path` is set to. */
+  path: string;
+  size: number;
+}
+
+export interface VideosResponse {
+  videos: UploadedVideo[];
 }

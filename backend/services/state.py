@@ -15,7 +15,11 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
+
+from computer_vision.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 #: A stream reads several times a second; a thumbnail about once a second.
@@ -48,6 +52,10 @@ class DashboardState:
     started_at: float = field(default_factory=time.time)
     running: bool = True
 
+    #: Called with each batch of newly published events, outside the lock -
+    #: how the alert center hears about them. Must not block for long.
+    on_events: Optional[Callable[[List[Dict[str, Any]]], Any]] = field(default=None, repr=False)
+
     def __post_init__(self) -> None:
         self._frame_ready = threading.Condition(self._lock)
         self._events = deque(maxlen=self.max_events)
@@ -75,6 +83,11 @@ class DashboardState:
                 self._event_seq += 1
                 self._events.append({"id": self._event_seq, **event})
             self._frame_ready.notify_all()
+        if events and self.on_events is not None:
+            try:
+                self.on_events(events)
+            except Exception:  # noqa: BLE001 - alerting must never stop the pipeline
+                logger.exception("Alert handling failed; the events are still in the feed")
 
     def publish_frame(self, jpeg: bytes) -> None:
         """Replace only the picture, leaving results, stats and events alone.

@@ -110,6 +110,13 @@ dashboard:
   max_events: 200
   max_streams: 4           # concurrent live-video viewers; extra ones get 503
   allowed_hosts: []        # extra Host names accepted (DNS-rebinding guard)
+  # Alerts: events someone should look at, kept open until acknowledged on
+  # the Alerts page. Repeats of the same event on the same camera fold into
+  # the open alert instead of piling up.
+  alerts:
+    min_severity: warning  # info | warning | critical
+    dedupe_seconds: 30     # 0 = every event is its own alert
+    max_alerts: 500
   # auth_token: never put the token here - use VISIONGUARD_DASHBOARD_TOKEN
 
 # -----------------------------------------------------------------------------
@@ -250,6 +257,17 @@ modules:
   crowd_detection:
     enabled: true
     threshold: 5           # people at or above this count = crowded
+
+  # Turns crowd_detection's count into events: crowd_formed once the crowd has
+  # lasted min_seconds, crowd_cleared once it has been gone clear_seconds.
+  # The threshold stays on crowd_detection, so it is set in one place.
+  crowd_alert:
+    enabled: false           # requires crowd_detection
+    min_seconds: 3
+    clear_seconds: 5
+    cooldown_seconds: 60     # repeat crowd_formed while the crowd lasts
+    report_cleared: true
+    severity: warning
 
   # Weapon-like objects. The stock model knows knife, baseball bat and
   # scissors only - COCO has no gun class. For firearms, point `model` at a
