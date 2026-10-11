@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { ModuleInfo } from '../../api/types';
 import { DASH, fmtNumber } from '../../lib/format';
 import { Panel } from '../ui/Panel';
@@ -9,24 +10,29 @@ interface ModulesPanelProps {
   errors: Record<string, string> | undefined;
   /** Frames are flowing; without that, "no error" says nothing about health. */
   live: boolean;
+  /** Rendered in the panel header after the count, e.g. a link. */
+  action?: ReactNode;
 }
 
 type Health = 'ok' | 'err' | 'unknown';
 
 const HEALTH_LABEL: Record<Health, string> = { ok: 'OK', err: 'ERR', unknown: DASH };
 
-export function ModulesPanel({ modules, latency, errors, live }: ModulesPanelProps) {
+export function ModulesPanel({ modules, latency, errors, live, action }: ModulesPanelProps) {
   const failing = modules.filter((m) => errors?.[m.name]).length;
 
   return (
     <Panel
       title="Modules"
       aside={
-        failing > 0 ? (
-          <span className="text-crit">{failing} failing</span>
-        ) : (
-          `${modules.length} loaded`
-        )
+        <>
+          {failing > 0 ? (
+            <span className="text-crit">{failing} failing</span>
+          ) : (
+            `${modules.length} loaded`
+          )}
+          {action}
+        </>
       }
     >
       {modules.length === 0 ? (

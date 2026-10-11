@@ -1610,3 +1610,206 @@ a:focus-visible {
   gap: 8px;
   font-size: 13px;
 }
+
+/* ---------- portal pages: shared additions ---------- */
+
+/* .page already provides the gutter. */
+.page > .layout {
+  padding: 0;
+}
+
+.page-intro a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.panel-link {
+  margin-left: 10px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--primary);
+}
+
+.panel-link:hover {
+  color: var(--text);
+}
+
+.tile-crit {
+  box-shadow: inset 0 -3px 0 var(--crit);
+}
+
+.tile-crit .tile-value {
+  color: var(--crit);
+}
+
+/* ---------- dashboard: frame summary ---------- */
+
+.frame-summary {
+  margin: -12px;
+  padding: 0;
+  list-style: none;
+}
+
+.frame-summary li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.frame-summary li:last-child {
+  border-bottom: 0;
+}
+
+.frame-summary-module {
+  font-size: 13px;
+  color: var(--primary);
+  overflow-wrap: anywhere;
+}
+
+.frame-summary-count {
+  font-size: 18px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ---------- events page ---------- */
+
+.events-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  margin-top: var(--gap);
+}
+
+/* The dedicated page lets the log run the full length of the page. */
+.panel-log-page .log {
+  max-height: none;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  padding: 12px;
+  background: var(--panel);
+  border: var(--border);
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filter-field-grow {
+  flex: 1 1 220px;
+}
+
+.filter-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.filter-input {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 2px solid var(--line-strong);
+  border-radius: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.filter-input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 2px solid var(--line-strong);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: transparent;
+  cursor: pointer;
+}
+
+.filter-chip-count {
+  font-weight: 500;
+}
+
+.filter-chip[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--panel-head);
+}
+
+.filter-chip.chip-info[aria-pressed='true'] {
+  border-color: var(--primary);
+}
+
+.filter-chip.chip-warning[aria-pressed='true'] {
+  border-color: var(--warn);
+}
+
+.filter-chip.chip-critical[aria-pressed='true'] {
+  border-color: var(--crit);
+}
+
+.filter-chip:focus-visible,
+.filter-reset:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.filter-reset {
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 2px solid var(--line-strong);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.filter-reset:hover {
+  color: var(--text);
+  border-color: var(--text);
+}
+
+@media (max-width: 719px) {
+  .filter-field,
+  .filter-field-grow {
+    flex: 1 1 100%;
+  }
+}
