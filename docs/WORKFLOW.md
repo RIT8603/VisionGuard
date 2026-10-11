@@ -187,8 +187,8 @@ to `computer_vision/core/pipeline.py`, the abstraction was wrong — fix that fi
 | — | Shared inference (2.15× faster with several detectors) |
 | 7 | Face detection, recognition, unknown person, identity store |
 | 8 | Object and vehicle tracking |
-| 9 | Restricted zone |
-| 10 | Read-only dashboard |
+| 9 | Restricted zone, crowd events (`crowd_alert`) |
+| 10 | Dashboard: live video, cameras, modules, events, alerts, module settings |
 
 ### In progress
 
@@ -206,11 +206,10 @@ to `computer_vision/core/pipeline.py`, the abstraction was wrong — fix that fi
 | PPE violation | PPE weights (no stock model has helmet/vest) |
 | Fire / smoke | Fire and smoke weights |
 | Face recognition end-to-end | YuNet + SFace ONNX files |
-| Dashboard control | Authentication — no mutation endpoints until then |
 
 ### Not started
 
-Loitering, intrusion analysis, cloud (Phase 11), agentic vision (Phase 12).
+Dashboard zone editing, cloud (Phase 11), agentic vision (Phase 12).
 
 ---
 

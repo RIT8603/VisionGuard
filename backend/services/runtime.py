@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Iterable, List, Optional, Sequence, Tuple
 
 from backend.services.cameras import mask_url
 from backend.services.hub import PHASE_ENDED, PHASE_FAILED, PHASE_RUNNING, CameraHub
 from backend.services.reload import ReloadController
 from backend.services.web_sink import WebSink
-from computer_vision.core.config import CameraConfig, VideoConfig, VisionGuardConfig
+from computer_vision.core.config import CameraConfig, ModuleConfig, VideoConfig, VisionGuardConfig
 from computer_vision.core.frame_processor import FrameProcessor
 from computer_vision.core.output import (
     BaseOutputSink,
@@ -138,7 +138,30 @@ class CameraRuntime:
         return self.spec.id
 
 
+def with_enabled_modules(config: VisionGuardConfig, enabled: Iterable[str]) -> VisionGuardConfig:
+    """A copy of ``config`` with exactly ``enabled`` turned on, nothing else touched.
+
+    Built with ``model_copy`` rather than a dump-and-revalidate round trip so
+    the dashboard's ``auth_token`` (a ``SecretStr``) is carried over as-is
+    instead of risking its masked ``"**********"`` JSON form leaking in.
+    """
+    wanted = set(enabled)
+    new_modules = {
+        name: module_cfg.model_copy(update={"enabled": name in wanted})
+        for name, module_cfg in config.modules.items()
+    }
+    # The API only accepts names ModuleRegistry already knows, but a name the
+    # config file never listed at all has no existing ModuleConfig to copy.
+    for name in wanted - set(new_modules):
+        new_modules[name] = ModuleConfig(enabled=True)
+    return config.model_copy(update={"modules": new_modules})
+
+
 def _config_for(config: VisionGuardConfig, spec: CameraSpec, multi: bool) -> VisionGuardConfig:
+    # A camera with its own module list runs exactly that; the others follow
+    # the shared selection already in ``config``. Parameters stay shared.
+    if spec.camera is not None and spec.camera.modules is not None:
+        config = with_enabled_modules(config, spec.camera.modules)
     update = {"video": spec.video}
     if multi and config.processing.show_window:
         # One OpenCV window per thread is not workable (GUI calls belong on the
@@ -273,7 +296,14 @@ def _run_one(rt: CameraRuntime, limits: RunLimits, hub: Optional[CameraHub]) -> 
         rt.failure = (FAILURE_FATAL, exc)
         phase(PHASE_FAILED, "internal error - see the log")
     else:
-        if rt.stats is not None and rt.stats.frames_processed == 0:
+        # A source that died mid-run is contained by the pipeline (so it can
+        # shut down cleanly); its reason is kept on the pipeline, not raised.
+        reason = rt.pipeline.end_reason
+        if rt.pipeline.interrupted or rt.pipeline.stop_requested:
+            phase(PHASE_ENDED)
+        elif reason:
+            phase(PHASE_FAILED, reason)
+        elif rt.stats is not None and rt.stats.frames_processed == 0:
             phase(PHASE_FAILED, "no frames received - check the camera and its address")
         else:
             phase(PHASE_ENDED)

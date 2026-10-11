@@ -15,7 +15,7 @@ Camera Source -> Video Source Abstraction -> OpenCV Vision Core
 
 ---
 
-## Status: Phase 9 (Pose, Fall, Attendance) — in progress
+## Status: Phase 10 (Dashboard: alerts and settings) — in progress
 
 Development workflow: **[docs/WORKFLOW.md](docs/WORKFLOW.md)**
 
@@ -31,7 +31,7 @@ Webcam / Video file / RTSP camera
 |---|---|
 | Project structure | Face detection / recognition — Phase 7 |
 | Configuration (YAML + env + CLI) | Higher-level features — Phase 9 |
-| Structured logging | Dashboard — Phase 10 |
+| Structured logging | Dashboard zone editing — Phase 10 |
 | `BaseVideoSource` abstraction | Cloud / Agentic — Phases 11–12 |
 | `WebcamSource` — development | |
 | `VideoFileSource` — evaluation | |
@@ -57,6 +57,7 @@ Webcam / Video file / RTSP camera
 | `object_tracking` | tracking | `object_detection` | working |
 | `vehicle_tracking` | tracking | `vehicle_detection` | working |
 | `crowd_detection` | analysis | `person_detection` | working |
+| `crowd_alert` | analysis | `crowd_detection` | working (emits events) |
 | `pose_detection` | detection | — | working (COCO 17 keypoints) |
 | `restricted_zone` | analysis | any tracking module | working (emits events) |
 | `fall_detection` | analysis | `pose_detection` | working (emits events) |
@@ -677,14 +678,16 @@ dashboard:
   # auth_token: set VISIONGUARD_DASHBOARD_TOKEN in .env, never here
 ```
 
-**Two writes, both narrow.** The dashboard mostly observes. It has exactly two
-endpoints that change anything: `POST /api/modules` (turn modules on or off,
-by name, from the catalogue the platform already knows) and `POST /api/cameras`
-(replace the camera list - see *Multiple cameras* below). Neither can change a
-module's settings, and a camera entry is validated to be a webcam index, a local
-video file or an `rtsp://` URL; nothing else is ever opened. Both sit behind the
-same access control as the video, and `dashboard.allow_camera_edit: false`
-freezes the camera list.
+**Few writes, all narrow.** The dashboard mostly observes. The endpoints that
+change anything are: `POST /api/modules` (turn modules on or off, by name, from
+the catalogue the platform already knows), `POST /api/cameras` (replace the
+camera list - see *Multiple cameras* below), `POST /api/settings` (a module's
+scalar tuning values - see *Module settings* below) and the two alert
+acknowledgements (see *Alerts*). A camera entry is validated to be a webcam
+index, a local video file or an `rtsp://` URL; nothing else is ever opened, and
+no write can change a model, a path or a URL. All of them sit behind the same
+access control as the video. `dashboard.allow_camera_edit: false` freezes the
+camera list and `dashboard.allow_settings_edit: false` makes settings read-only.
 
 **Access control.** Read-only is not harmless - the stream is a live camera.
 
@@ -758,9 +761,14 @@ cameras:
   `cameras.yaml` is ignored for that run. Otherwise `cameras.yaml`, otherwise the
   `video:` section.
 - **Shared settings.** Capture size, RTSP transport, timeouts and the reconnect
-  budget come from the `video:` section for every camera. All cameras use the
-  same modules and the same module settings - including zones and lines, which
-  are in image coordinates, so a zone drawn for one camera applies to all.
+  budget come from the `video:` section for every camera. Module settings are
+  shared too - including zones and lines, which are in image coordinates, so a
+  zone drawn for one camera applies to all.
+- **Modules per camera.** A camera runs the shared selection (the Modules page /
+  the `modules:` section) unless it has its own `modules:` list - set it on the
+  Cameras page ("Choose for this camera") or in `cameras.yaml`. The list is the
+  backend module names, dependencies included (e.g. `[pose_detection,
+  fall_detection]`); an empty list means video only.
 - **One bad camera does not stop the others.** An unreachable stream or a pulled
   USB cable marks only that camera *failed* (with the reason, password masked);
   the rest keep running. With several cameras the program stays up so you can fix
@@ -778,7 +786,45 @@ cameras:
   so existing clients keep working. `GET /api/cameras` lists every camera with its
   status; `POST /api/cameras` replaces the list.
 
-Not included: editing module settings or zones from the browser.
+Not included: editing zones from the browser.
+
+### Alerts
+
+An event is a fact a module published; an **alert** is the to-do item the
+dashboard builds from it (**Alerts** page, `GET /api/alerts`). Only events at or
+above `min_severity` become alerts. Repeats of the same event about the same
+subject on the same camera within `dedupe_seconds` fold into the open alert
+(its count goes up) instead of piling up. An alert stays open until someone
+acknowledges it (`POST /api/alerts/<id>/ack`, or `POST /api/alerts/ack` for all).
+
+```yaml
+dashboard:
+  alerts:
+    min_severity: warning  # info | warning | critical
+    dedupe_seconds: 30     # 0 = every event is its own alert
+    max_alerts: 500        # oldest acknowledged ones are dropped first
+```
+
+Alerts live in memory for the run and are shown only on the dashboard - no
+e-mail, SMS or push yet. No analysis module knows alerts exist (Agent.md §16):
+the alert center sits behind the per-camera dashboard state and a failure in it
+cannot stop a pipeline.
+
+### Module settings
+
+The **Settings** page (`GET`/`POST /api/settings`) edits a module's tuning
+values without touching `config.yaml` by hand: thresholds, timers, cooldowns,
+booleans and `severity`. Rules:
+
+- Only **scalar** settings the module's block already has. Lists and maps
+  (zones, labels, sources) are not editable from the browser.
+- A key that names a model, path, URL, device, backend, source or file is never
+  editable, whatever its type.
+- A value keeps its type and must be a finite number >= 0. Whether it is
+  sensible is the module's call: the change rebuilds the modules, and a value
+  the module rejects leaves the previous settings running with the reason shown.
+- An applied change is written back into `config.yaml` in place, keeping
+  comments - only the value on the existing `    key: value` line changes.
 
 ---
 

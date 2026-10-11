@@ -10,8 +10,8 @@
 # ignores this file.
 #
 # Capture size, RTSP transport, timeouts and reconnect settings come from the
-# video: section of config.yaml and apply to every camera. All cameras use the
-# same modules.
+# video: section of config.yaml and apply to every camera. A camera runs the
+# modules enabled in config.yaml unless it has its own `modules:` list.
 
 cameras:
   # id:   1-32 characters: lower-case letters, digits, '-' and '_'. Stable: it
@@ -22,6 +22,9 @@ cameras:
     name: Main gate
     source: rtsp                       # rtsp://, or rtsps://, only
     rtsp_url: rtsp://user:password@192.168.1.10:554/stream1
+    # modules: this camera's own AI modules, dependencies included. Leave it
+    #          out to follow config.yaml / the Modules page; [] = video only.
+    modules: [person_detection, person_tracking, restricted_zone]
 
   - id: lab
     name: Lab webcam

@@ -103,6 +103,8 @@ Implement:
 - Unknown Person Alert
 - Crowd Events
 
+Status: done except PPE Violation (blocked on PPE weights).
+
 ---
 
 ## Phase 10 — Dashboard
@@ -116,6 +118,10 @@ Implement:
 - events
 - alerts
 - configuration
+
+Status: in progress. Done: camera management, module selection, live
+video, module results, events, alerts (Alerts page), configuration of module
+settings (Settings page). Not yet: zone editing from the browser.
 
 ---
 

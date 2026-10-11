@@ -70,6 +70,11 @@ class VisionPipeline:
         #: the interrupt (so the pipeline can shut down cleanly); this lets a
         #: caller that supervises several pipelines still tell it happened.
         self.interrupted = False
+        #: Why the last run stopped early because of its source (a dead
+        #: stream, nothing arriving), or None. ``run()`` contains source
+        #: failures so it can shut down cleanly; a caller that reports status
+        #: reads the reason here instead of guessing one.
+        self.end_reason: str | None = None
         self._max_consecutive_failures = 10
         self._min_frame_interval = (
             1.0 / config.processing.max_fps if config.processing.max_fps > 0 else 0.0
@@ -80,6 +85,11 @@ class VisionPipeline:
     # ------------------------------------------------------------------ #
     # Control
     # ------------------------------------------------------------------ #
+
+    @property
+    def stop_requested(self) -> bool:
+        """True when :meth:`stop` was called during the current/last run."""
+        return self._stop_requested
 
     @property
     def is_running(self) -> bool:
@@ -99,6 +109,7 @@ class VisionPipeline:
         self._running = True
         self._stop_requested = False
         self.interrupted = False
+        self.end_reason = None
 
         try:
             # Inside the try: if opening fails, modules, the output sink and
@@ -169,6 +180,7 @@ class VisionPipeline:
             return None, True
         except VideoSourceError as exc:
             logger.error("Video source failure: %s", exc)
+            self.end_reason = str(exc)
             return None, True
 
     def _stalled(self) -> bool:
@@ -192,6 +204,10 @@ class VisionPipeline:
             "No frame received for %.1fs (stall_timeout_sec=%.1f) - stopping",
             idle_for,
             timeout,
+        )
+        self.end_reason = (
+            f"no frame arrived for {idle_for:.0f}s - the stream opened but sent no "
+            "video (check the stream path, token, or that it is still live)"
         )
         return True
 

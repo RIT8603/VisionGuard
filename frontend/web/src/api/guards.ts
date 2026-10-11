@@ -6,6 +6,11 @@
  */
 
 import type {
+  SetSettingsResponse,
+  SettingsResponse,
+  AckAllResponse,
+  AlertInfo,
+  AlertsResponse,
   CameraInfo,
   CamerasResponse,
   EventsResponse,
@@ -13,6 +18,8 @@ import type {
   FrameSummary,
   PipelineStats,
   SetCamerasResponse,
+  UploadedVideo,
+  VideosResponse,
   SetModulesResponse,
   StatusResponse,
 } from './types';
@@ -100,4 +107,57 @@ export function hasStats(stats: StatusResponse['stats']): stats is PipelineStats
     typeof candidate.fps === 'number' &&
     typeof candidate.frames_processed === 'number'
   );
+}
+
+export function isAlertInfo(value: unknown): value is AlertInfo {
+  return (
+    isObject(value) &&
+    typeof value.id === 'number' &&
+    typeof value.camera === 'string' &&
+    typeof value.event === 'string' &&
+    typeof value.status === 'string' &&
+    typeof value.count === 'number' &&
+    typeof value.last_seen === 'string'
+  );
+}
+
+export function isAlertsResponse(value: unknown): value is AlertsResponse {
+  return (
+    isObject(value) &&
+    Array.isArray(value.alerts) &&
+    value.alerts.every(isAlertInfo) &&
+    typeof value.open_count === 'number'
+  );
+}
+
+export function isAckAllResponse(value: unknown): value is AckAllResponse {
+  return isObject(value) && typeof value.acknowledged === 'number';
+}
+
+export function isSettingsResponse(value: unknown): value is SettingsResponse {
+  return (
+    isObject(value) &&
+    typeof value.editable === 'boolean' &&
+    isObject(value.modules) &&
+    Object.values(value.modules).every(
+      (entry) => isObject(entry) && typeof entry.enabled === 'boolean' && isObject(entry.settings),
+    )
+  );
+}
+
+export function isSetSettingsResponse(value: unknown): value is SetSettingsResponse {
+  return isObject(value) && typeof value.status === 'string' && typeof value.module === 'string';
+}
+
+export function isUploadedVideo(value: unknown): value is UploadedVideo {
+  return (
+    isObject(value) &&
+    typeof value.name === 'string' &&
+    typeof value.path === 'string' &&
+    typeof value.size === 'number'
+  );
+}
+
+export function isVideosResponse(value: unknown): value is VideosResponse {
+  return isObject(value) && Array.isArray(value.videos) && value.videos.every(isUploadedVideo);
 }

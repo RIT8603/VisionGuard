@@ -3,7 +3,12 @@ import { setModules } from '../../api/endpoints';
 import { ApiError } from '../../api/client';
 import { ModuleCard } from '../../components/modules/ModuleCard';
 import { SelectionSummary } from '../../components/modules/SelectionSummary';
-import { CATEGORIES, MODULE_CATALOG } from '../../content/moduleCatalog';
+import {
+  CATEGORIES,
+  MODULE_CATALOG,
+  backendKeysFor,
+  catalogIdsFor,
+} from '../../content/moduleCatalog';
 import { usePipeline } from '../../state/PipelineProvider';
 
 type ApplyState = 'idle' | 'applying' | 'applied' | 'error';
@@ -12,27 +17,15 @@ type ApplyState = 'idle' | 'applying' | 'applied' | 'error';
  * toggles becomes one backend restart instead of several. */
 const APPLY_DEBOUNCE_MS = 400;
 
-/** Backend module keys the current selection needs, dependencies included,
- * in catalogue order. Planned items contribute nothing - there is no module
- * to enable yet. */
-function backendKeysFor(selected: ReadonlySet<string>): string[] {
-  const keys: string[] = [];
-  for (const module of MODULE_CATALOG) {
-    if (module.status === 'planned' || !selected.has(module.id)) continue;
-    for (const key of module.backendModules) {
-      if (!keys.includes(key)) keys.push(key);
-    }
-  }
-  return keys;
-}
-
 export function ModulesPage() {
-  const { status, reachable } = usePipeline();
+  const { status, reachable, cameras } = usePipeline();
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [apply, setApply] = useState<{ state: ApplyState; message?: string }>({ state: 'idle' });
   // Seeded once the backend's actual running modules are known, so the first
   // render doesn't send an "apply" for an empty selection.
   const seeded = useRef(false);
+  // What the backend already has, so opening the page does not re-send it.
+  const sentKeys = useRef('');
 
   // Modules the connected pipeline is actually running (from /api/status).
   const runningKeys = new Set(
@@ -40,24 +33,33 @@ export function ModulesPage() {
   );
 
   useEffect(() => {
-    if (seeded.current || !reachable || !status.data) return;
+    if (seeded.current) return;
+    // The shared selection, when the backend reports it: the followed camera
+    // may be running its own set (Cameras page), which is not what this page edits.
+    const shared = cameras.data?.shared_modules;
+    let ids: string[];
+    if (Array.isArray(shared)) ids = catalogIdsFor(shared);
+    else if (reachable && status.data && cameras.data !== null) ids = catalogIdsFor(runningKeys);
+    else return;
     seeded.current = true;
-    const ids = MODULE_CATALOG.filter(
-      (m) => m.backendModules.length > 0 && m.backendModules.every((key) => runningKeys.has(key)),
-    ).map((m) => m.id);
+    sentKeys.current = JSON.stringify(backendKeysFor(new Set(ids)));
     setSelected(new Set(ids));
     // Only the first time the backend is seen - after that, the operator's
     // own clicks are the source of truth, not whatever is currently running.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reachable, status.data]);
+  }, [reachable, status.data, cameras.data]);
 
   useEffect(() => {
     if (!seeded.current) return;
     const keys = backendKeysFor(selected);
+    if (JSON.stringify(keys) === sentKeys.current) return;
     const timer = window.setTimeout(() => {
       setApply({ state: 'applying' });
       setModules(keys)
-        .then(() => setApply({ state: 'applied' }))
+        .then(() => {
+          sentKeys.current = JSON.stringify(keys);
+          setApply({ state: 'applied' });
+        })
         .catch((error: unknown) => {
           const message = error instanceof ApiError ? error.message : 'Could not reach the backend';
           setApply({ state: 'error', message });
@@ -102,7 +104,8 @@ export function ModulesPage() {
           <h2 className="page-title">Module selection</h2>
           <p className="page-intro">
             Choose the capabilities your cameras need. Each one shows whether it works today, needs
-            setup first, or is still planned.
+            setup first, or is still planned. A camera that was given its own modules on the
+            Cameras page keeps those and ignores this selection.
           </p>
         </header>
 
