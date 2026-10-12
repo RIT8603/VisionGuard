@@ -30,7 +30,8 @@ from backend.api.server import (  # noqa: E402
     build_app,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+# tools/tests/test_hardening.py -> repository root
+ROOT = Path(__file__).resolve().parents[2]
 TOKEN = "t0ken-for-tests-only-0123456789"
 
 
@@ -114,24 +115,37 @@ class TestH1JsonSafeStatus:
 # --------------------------------------------------------------------------- #
 
 class TestH2NoHtmlInjection:
-    html = (ROOT / "frontend" / "static" / "index.html").read_text(encoding="utf-8")
+    # The dashboard is the React/Vite app in frontend/web. React escapes
+    # interpolated values, so a server value can only be parsed as HTML
+    # through one of these raw-HTML escape hatches.
+    src = ROOT / "frontend" / "web" / "src"
+    unsafe = re.compile(
+        r"dangerouslySetInnerHTML"
+        r"|\.(inner|outer)HTML\s*\+?=(?!=)"
+        r"|\binsertAdjacentHTML\s*\("
+        r"|\bdocument\.write(ln)?\s*\("
+    )
 
-    def _script(self) -> str:
-        return self.html.split("<script>", 1)[1].split("</script>", 1)[0]
+    def _sources(self) -> list[Path]:
+        return sorted(
+            path for path in self.src.rglob("*")
+            if path.suffix in {".ts", ".tsx", ".js", ".jsx"}
+        )
 
-    def test_every_innerhtml_interpolation_is_escaped(self):
-        script = self._script()
-        # Every ${...} inside an innerHTML template must go through esc(),
-        # num() or cls().
-        for block in re.findall(r"innerHTML\s*=\s*(.*?);\n", script, re.S):
-            for expr in re.findall(r"\$\{([^}]*)\}", block):
-                assert re.match(r"\s*(esc|num|cls)\(", expr), expr
+    def test_frontend_sources_are_found(self):
+        # Guard against the scan below passing vacuously after a move.
+        assert any(path.suffix == ".tsx" for path in self._sources())
 
-    def test_events_are_built_with_text_nodes(self):
-        script = self._script()
-        add_events = script.split("function addEvents", 1)[1]
-        assert "innerHTML" not in add_events
-        assert "textContent" in add_events
+    def test_no_raw_html_injection_apis(self):
+        hits = [
+            f"{path.relative_to(ROOT).as_posix()}:{lineno}: {line.strip()}"
+            for path in self._sources()
+            for lineno, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            )
+            if self.unsafe.search(line)
+        ]
+        assert not hits, "raw HTML injection API in frontend:\n" + "\n".join(hits)
 
     def test_security_headers_are_sent(self):
         client = TestClient(build_app(DashboardState()), base_url="http://127.0.0.1")
@@ -385,7 +399,7 @@ class TestM6RecoveryIsNotAStall:
     def test_pipeline_waits_while_the_source_recovers(self):
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import RunLimits, VisionPipeline
-        from tests.test_pipeline import RecordingSink
+        from tools.tests.test_pipeline import RecordingSink
 
         class Recovering(BaseVideoSource):
             """No frames for 0.5 s (a reconnect), then frames again."""
@@ -567,9 +581,24 @@ class TestM8EventPaging:
         assert client.get("/api/events?since=999").json() == {"events": [], "last_id": 0}
 
     def test_frontend_pages_and_resets(self):
-        script = (ROOT / "frontend" / "static" / "index.html").read_text(encoding="utf-8")
-        assert "last_id < lastEventId" in script
-        assert "events.length < EVENT_PAGE" in script
+        src = ROOT / "frontend" / "web" / "src"
+        feed = (src / "hooks" / "useEventFeed.ts").read_text(encoding="utf-8")
+        endpoints = (src / "api" / "endpoints.ts").read_text(encoding="utf-8")
+        config = (src / "config.ts").read_text(encoding="utf-8")
+
+        # Pages: every request carries the cursor and a page size the backend
+        # accepts, and the cursor advances to the newest id seen, so a burst
+        # is drained page by page instead of dropped.
+        assert "since: String(since), limit: String(limit)" in endpoints
+        assert re.search(r"getEvents\(\s*cursor\.current,\s*EVENTS_LIMIT\b", feed)
+        assert "cursor.current = Math.max(cursor.current, ...fresh.map(" in feed
+        limit = re.search(r"export const EVENTS_LIMIT = (\d+);", config)
+        assert limit and 1 <= int(limit.group(1)) <= 200
+
+        # Resets: ids restart at 1 with the backend, so a count below the
+        # cursor must clear the cursor or every new event stays hidden.
+        assert "count < cursor.current) reset()" in feed
+        assert "cursor.current = 0;" in feed
 
 
 # --------------------------------------------------------------------------- #

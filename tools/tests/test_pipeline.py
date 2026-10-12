@@ -22,7 +22,7 @@ from computer_vision.modules.base import BaseAIModule, ModuleResult, ModuleStatu
 from computer_vision.modules.registry import ModuleRegistry
 from computer_vision.sources.base import BaseVideoSource, FramePacket, SourceInfo
 from computer_vision.utils.timing import PipelineStats
-from tests.conftest import make_module
+from tools.tests.conftest import make_module
 
 
 class SyntheticSource(BaseVideoSource):

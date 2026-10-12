@@ -667,7 +667,7 @@ class TestRunGroup:
     def test_a_failed_build_releases_everything(self, tmp_path, clips):
         config = load_config(str(_config(tmp_path)))
         specs = self._specs(config, clips)
-        FakeBackend = __import__("tests.conftest", fromlist=["FakeDetectorBackend"]).FakeDetectorBackend
+        FakeBackend = __import__("tools.tests.conftest", fromlist=["FakeDetectorBackend"]).FakeDetectorBackend
         FakeBackend.fail_on_load = True
         with pytest.raises(Exception):
             build_runtimes(config, specs)

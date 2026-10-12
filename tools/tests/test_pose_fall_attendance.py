@@ -55,7 +55,7 @@ def fake_pose(monkeypatch):
     monkeypatch.setitem(
         pose_backend_module.POSE_BACKENDS,
         "fake",
-        "tests.test_pose_fall_attendance:FakePoseBackend",
+        "tools.tests.test_pose_fall_attendance:FakePoseBackend",
     )
     yield
 
@@ -613,7 +613,7 @@ class TestWiring:
     def test_full_chain_through_the_pipeline(self):
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
-        from tests.test_pipeline import RecordingSink, SyntheticSource
+        from tools.tests.test_pipeline import RecordingSink, SyntheticSource
 
         # A person lying on the floor, for the whole clip.
         joints = np.zeros((17, 3), dtype=np.float32)

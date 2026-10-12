@@ -371,8 +371,8 @@ class TestFullPipeline:
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
         from computer_vision.inference.base import RawDetection
-        from tests.conftest import FakeDetectorBackend
-        from tests.test_pipeline import RecordingSink, SyntheticSource
+        from tools.tests.conftest import FakeDetectorBackend
+        from tools.tests.test_pipeline import RecordingSink, SyntheticSource
 
         FakeDetectorBackend.scripted_sequence = [
             [
