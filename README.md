@@ -322,12 +322,12 @@ VisionGuard/
 │   └── services/           dashboard state, the sink that feeds it
 │
 ├── frontend/               USER INTERFACE
-│   └── static/index.html
+│   └── web/                React + Vite + TypeScript app (source in src/)
 │
 ├── configs/config.yaml     every behavioural switch
 ├── docs/                   the authoritative specification
-├── tests/                  584 unit + 4 integration
 └── tools/                  offline evaluation (recognition accuracy)
+    └── tests/              584 unit + 4 integration
 ```
 
 Inside `computer_vision/`, the three model-related folders divide cleanly:

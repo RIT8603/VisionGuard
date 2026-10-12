@@ -18,7 +18,7 @@ from computer_vision.modules.tracking.base import BaseTrackingModule
 from computer_vision.modules.tracking.object import ObjectTrackingModule
 from computer_vision.modules.tracking.person import PersonTrackingModule
 from computer_vision.modules.tracking.vehicle import VehicleTrackingModule
-from tests.conftest import FakeDetectorBackend
+from tools.tests.conftest import FakeDetectorBackend
 
 TRACKING_MODULES = [PersonTrackingModule, ObjectTrackingModule, VehicleTrackingModule]
 
@@ -296,7 +296,7 @@ class TestFullPipeline:
         """person #1 and vehicle #1 are different things, and that is fine."""
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
-        from tests.test_pipeline import RecordingSink, SyntheticSource
+        from tools.tests.test_pipeline import RecordingSink, SyntheticSource
 
         FakeDetectorBackend.scripted = [
             RawDetection(label="person", confidence=0.9, xyxy=(10, 10, 60, 200), class_id=0),

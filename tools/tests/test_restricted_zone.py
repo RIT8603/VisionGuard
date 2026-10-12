@@ -29,7 +29,7 @@ from computer_vision.modules.analysis.zone import (
 )
 from computer_vision.modules.base import ModuleInitializationError, ModuleType
 from computer_vision.modules.registry import ModuleDependencyError, ModuleRegistry
-from tests.conftest import FakeDetectorBackend
+from tools.tests.conftest import FakeDetectorBackend
 
 #: Right-hand half of the frame.
 RIGHT_HALF = [[0.5, 0.0], [1.0, 0.0], [1.0, 1.0], [0.5, 1.0]]
@@ -639,7 +639,7 @@ class TestFullPipeline:
         """The whole chain: pixels in, a zone event out."""
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
-        from tests.test_pipeline import RecordingSink, SyntheticSource
+        from tools.tests.test_pipeline import RecordingSink, SyntheticSource
 
         # A person standing in the right-hand half of a 640x480 frame.
         FakeDetectorBackend.scripted = [

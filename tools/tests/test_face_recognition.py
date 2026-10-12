@@ -77,10 +77,10 @@ def fake_face_backends(monkeypatch):
     FakeFaceDetector.fail_on_load = False
     FakeFaceEmbedder.by_x = {}
     monkeypatch.setitem(
-        face_factory.FACE_DETECTORS, "fake", "tests.test_face_recognition:FakeFaceDetector"
+        face_factory.FACE_DETECTORS, "fake", "tools.tests.test_face_recognition:FakeFaceDetector"
     )
     monkeypatch.setitem(
-        face_factory.FACE_EMBEDDERS, "fake", "tests.test_face_recognition:FakeFaceEmbedder"
+        face_factory.FACE_EMBEDDERS, "fake", "tools.tests.test_face_recognition:FakeFaceEmbedder"
     )
     yield
 
@@ -721,7 +721,7 @@ class TestFullChain:
         """A stranger walks in front of the camera and one event results."""
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
-        from tests.test_pipeline import RecordingSink, SyntheticSource
+        from tools.tests.test_pipeline import RecordingSink, SyntheticSource
 
         FakeFaceDetector.scripted = [a_face(100)]
         FakeFaceEmbedder.by_x = {100: vec(42)}  # nothing like alice
@@ -756,7 +756,7 @@ class TestFullChain:
     def test_an_enrolled_person_raises_nothing(self, tmp_path):
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
-        from tests.test_pipeline import RecordingSink, SyntheticSource
+        from tools.tests.test_pipeline import RecordingSink, SyntheticSource
 
         alice = vec(1)
         FakeFaceDetector.scripted = [a_face(100)]

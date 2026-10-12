@@ -4,7 +4,7 @@ Skipped automatically when ultralytics is not installed or the model weights
 are not present, so the core suite stays fast and hardware-free. Run it
 explicitly with:
 
-    pytest tests/test_detection_integration.py -m integration
+    pytest tools/tests/test_detection_integration.py -m integration
 """
 
 from __future__ import annotations

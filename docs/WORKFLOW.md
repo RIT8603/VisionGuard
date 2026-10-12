@@ -107,7 +107,7 @@ New modules ship disabled. The default config must stay runnable on a laptop.
 ### Step 5 — Test against fakes
 
 Tests must not need a camera, display, model or network. Use the fake backends
-in `tests/conftest.py`. Cover:
+in `tools/tests/conftest.py`. Cover:
 
 - the happy path
 - every config knob actually taking effect

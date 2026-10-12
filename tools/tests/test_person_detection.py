@@ -24,7 +24,7 @@ from computer_vision.inference.factory import available_backends, create_detecto
 from computer_vision.modules.base import ModuleInitializationError, ModuleType
 from computer_vision.modules.detection.person import COCO_PERSON_CLASS_ID, PersonDetectionModule
 from computer_vision.modules.registry import ModuleRegistry
-from tests.conftest import FakeDetectorBackend, inner_backend
+from tools.tests.conftest import FakeDetectorBackend, inner_backend
 
 
 #: The shared fake backend lives in conftest so tracking tests can use it too.
