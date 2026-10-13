@@ -1617,214 +1617,205 @@ a:focus-visible {
   font-size: 13px;
 }
 
-/* Per-camera module picker (cameras page). */
+/* ---------- portal pages: shared additions ---------- */
 
-.camera-modules {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 260px;
-  padding: 10px;
-  overflow-y: auto;
-  border: 2px solid var(--line-strong);
+/* .page already provides the gutter. */
+.page > .layout {
+  padding: 0;
 }
 
-.camera-modules-group {
+.page-intro a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.panel-link {
+  margin-left: 10px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--primary);
+}
+
+.panel-link:hover {
+  color: var(--text);
+}
+
+.tile-crit {
+  box-shadow: inset 0 -3px 0 var(--crit);
+}
+
+.tile-crit .tile-value {
+  color: var(--crit);
+}
+
+/* ---------- dashboard: frame summary ---------- */
+
+.frame-summary {
+  margin: -12px;
+  padding: 0;
+  list-style: none;
+}
+
+.frame-summary li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.frame-summary li:last-child {
+  border-bottom: 0;
+}
+
+.frame-summary-module {
+  font-size: 13px;
+  color: var(--primary);
+  overflow-wrap: anywhere;
+}
+
+.frame-summary-count {
+  font-size: 18px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ---------- events page ---------- */
+
+.events-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  margin-top: var(--gap);
+}
+
+/* The dedicated page lets the log run the full length of the page. */
+.panel-log-page .log {
+  max-height: none;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  padding: 12px;
+  background: var(--panel);
+  border: var(--border);
+}
+
+.filter-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
 }
 
-.camera-modules-group legend {
-  margin-bottom: 6px;
-  padding: 0;
-  font-size: 11px;
+.filter-field-grow {
+  flex: 1 1 220px;
+}
+
+.filter-label {
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
-.camera-modules-group:disabled {
-  opacity: 0.55;
+.filter-input {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 2px solid var(--line-strong);
+  border-radius: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
 }
 
-.camera-modules-tag {
-  font-size: 11px;
-  font-style: normal;
-  color: var(--muted);
+.filter-input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
 }
 
-/* ---------- alerts ---------- */
-
-.alerts-toolbar {
+.filter-chips {
   display: flex;
   flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filter-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: var(--gap);
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 2px solid var(--line-strong);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: transparent;
+  cursor: pointer;
 }
 
-.alerts-toolbar .page-meta {
-  flex: 1;
-  margin: 0;
+.filter-chip-count {
+  font-weight: 500;
 }
 
-.alerts-filters {
-  display: flex;
+.filter-chip[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--panel-head);
 }
 
-.alerts-filter {
+.filter-chip.chip-info[aria-pressed='true'] {
+  border-color: var(--primary);
+}
+
+.filter-chip.chip-warning[aria-pressed='true'] {
+  border-color: var(--warn);
+}
+
+.filter-chip.chip-critical[aria-pressed='true'] {
+  border-color: var(--crit);
+}
+
+.filter-chip:focus-visible,
+.filter-reset:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.filter-reset {
+  min-height: 36px;
   padding: 6px 12px;
-  border: var(--border);
-  margin-right: -2px;
+  border: 2px solid var(--line-strong);
   font: inherit;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
-  background: var(--panel);
+  background: transparent;
   cursor: pointer;
 }
 
-.alerts-filter.is-active {
-  color: var(--on-fill);
-  background: var(--primary);
-  border-color: var(--primary);
-}
-
-.alerts-filter:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-
-.alerts-list {
-  border: var(--border);
-  background: var(--panel);
-}
-
-.alerts-list {
-  max-height: none;
-}
-
-.alerts-list .log-row {
-  grid-template-columns: 52px minmax(0, 1fr) auto;
-  align-items: stretch;
-}
-
-.alerts-list .alert-ack {
-  align-self: center;
-  margin-right: 12px;
-}
-
-.alerts-list .is-acknowledged {
-  opacity: 0.6;
-}
-
-.alert-count {
-  color: var(--warn);
-  font-weight: 700;
-}
-
-.alert-ack {
-  margin-top: 0;
-  flex-shrink: 0;
-}
-
-.summary-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ---------- module settings ---------- */
-
-.settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: var(--gap);
-}
-
-.settings-card .panel-head h2 {
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.settings-fields {
-  margin: 0;
-}
-
-.settings-field {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.settings-field dt {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.settings-field dd {
-  margin: 0;
-}
-
-.settings-field input[type='number'],
-.settings-field select {
-  width: 110px;
-  padding: 4px 6px;
-  border: var(--border);
-  font: inherit;
-  font-family: var(--font-mono);
+.filter-reset:hover {
   color: var(--text);
-  background: var(--bg);
+  border-color: var(--text);
 }
 
-.settings-field input:focus-visible,
-.settings-field select:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 1px;
-}
-
-.settings-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.settings-actions .summary-btn-quiet {
-  margin-top: 0;
-}
-
-.settings-ok {
-  margin: 8px 0 0;
-  color: var(--ok);
-  font-size: 13px;
-}
-
-.link-button {
-  border: 0;
-  padding: 0;
-  background: none;
-  color: var(--primary);
-  font: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-/* A camera that failed: the reason, in the alert colour, over the empty feed. */
-.stream-overlay.is-failed {
-  color: var(--crit);
-  white-space: pre-line;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 500;
+@media (max-width: 719px) {
+  .filter-field,
+  .filter-field-grow {
+    flex: 1 1 100%;
+  }
 }

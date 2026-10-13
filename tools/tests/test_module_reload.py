@@ -22,7 +22,7 @@ from computer_vision.core.config import load_config
 from computer_vision.modules.base import ModuleError
 from computer_vision.modules.registry import ModuleRegistry
 
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "config.yaml"
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "config.yaml"
 
 
 # --------------------------------------------------------------------------- #

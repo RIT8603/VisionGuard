@@ -285,7 +285,7 @@ class TestPipelineIntegration:
         """The whole point: a repeatable run with a definite end."""
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
-        from tests.test_pipeline import RecordingSink
+        from tools.tests.test_pipeline import RecordingSink
 
         config = build_config(
             {
@@ -312,7 +312,7 @@ class TestPipelineIntegration:
         """Reproducibility is the reason this source exists."""
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
-        from tests.test_pipeline import RecordingSink
+        from tools.tests.test_pipeline import RecordingSink
 
         def run_once():
             config = build_config(

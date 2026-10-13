@@ -33,8 +33,8 @@ from computer_vision.modules.tracking.person import PersonTrackingModule
 from computer_vision.modules.tracking.tracker_core import IoUTracker
 from computer_vision.sources.rtsp import RTSPSource
 from computer_vision.utils.timing import FpsMeter, LatencyMeter, PipelineStats
-from tests.conftest import FakeDetectorBackend
-from tests.test_rtsp_source import fake_stream, rtsp_config  # noqa: F401 - fixture
+from tools.tests.conftest import FakeDetectorBackend
+from tools.tests.test_rtsp_source import fake_stream, rtsp_config  # noqa: F401 - fixture
 
 FRAME_W, FRAME_H = 640, 480
 RIGHT_HALF = [[0.5, 0.0], [1.0, 0.0], [1.0, 1.0], [0.5, 1.0]]

@@ -5,6 +5,8 @@ import { NotFoundPage } from '../pages/NotFoundPage';
 import { AlertsPage } from '../pages/portal/AlertsPage';
 import { CamerasPage } from '../pages/portal/CamerasPage';
 import { DashboardPage } from '../pages/portal/DashboardPage';
+import { EventsPage } from '../pages/portal/EventsPage';
+import { LiveMonitoringPage } from '../pages/portal/LiveMonitoringPage';
 import { ModulesPage } from '../pages/portal/ModulesPage';
 import { SettingsPage } from '../pages/portal/SettingsPage';
 import { AboutPage } from '../pages/public/AboutPage';
@@ -31,7 +33,9 @@ export function AppRoutes() {
       <Route path={PATHS.portal.root} element={<PortalLayout />}>
         <Route index element={<Navigate to={PATHS.portal.dashboard} replace />} />
         <Route path={PATHS.portal.dashboard} element={<DashboardPage />} />
+        <Route path={PATHS.portal.live} element={<LiveMonitoringPage />} />
         <Route path={PATHS.portal.cameras} element={<CamerasPage />} />
+        <Route path={PATHS.portal.events} element={<EventsPage />} />
         <Route path={PATHS.portal.modules} element={<ModulesPage />} />
         <Route path={PATHS.portal.alerts} element={<AlertsPage />} />
         <Route path={PATHS.portal.settings} element={<SettingsPage />} />

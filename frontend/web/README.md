@@ -46,6 +46,8 @@ dashboard at <http://localhost:5173/portal/dashboard>.
 | `/contact` | Public | Contact |
 | `/portal` | Portal | Redirects to `/portal/dashboard` |
 | `/portal/dashboard` | Portal | Live monitoring dashboard |
+| `/portal/live` | Portal | Live Monitoring: the selected camera's stream with full frame tables |
+| `/portal/events` | Portal | Events & Alerts: severity summary, filters and the full event log |
 | `/portal/cameras` | Portal | Set the number of cameras and fill in one form per camera; Apply restarts the backend's pipelines |
 | `/portal/modules` | Portal | Module selection (toggling a module applies it to the running backend) |
 | anything else | Public | Branded 404 (keeps the URL that was typed) |
@@ -75,19 +77,22 @@ src/
   content/
     moduleCatalog.ts       customer-facing module list with status and backend keys
   components/
-    ui/                    generic: Panel, ExternalLink
+    ui/                    generic: Panel, PanelLink, ExternalLink
     brand/                 Logo (LogoMark, Wordmark)
     layout/                PublicNavbar, Footer, PortalHeader, PortalNav
     modules/               ModuleCard, SelectionSummary
-    pipeline/              dashboard panels: LiveStream, StatsPanel, StatusPanel,
-                           ModulesPanel, FrameResults, EventFeed,
+    events/                EventFilters
+    pipeline/              live-data panels: LiveStream, StatsPanel, StatusPanel,
+                           ModulesPanel, FrameResults, FrameSummary, EventFeed,
                            ConnectionNotice, StateBadge
   api/                     typed models, shape guards, fetch client, endpoints
   hooks/                   usePipelineStatus, useEventFeed, usePageVisible
   state/
     viewState.ts           derives loading/waiting/live/stale/stopped/offline
     PipelineProvider.tsx   shares one set of polling loops across the portal
-  lib/format.ts            number, time and event formatting
+  lib/
+    format.ts              number, time and event formatting
+    eventFilters.ts        client-side event filtering (severity, module, text, order)
   styles/
     index.css              design tokens, base styles, portal and dashboard
     public.css             public site only (every class starts with `site-`)
@@ -292,16 +297,21 @@ the same brackets the backend draws around what it detects.
 | Implemented | Planned (not started) |
 |---|---|
 | Public Landing, About, Contact, 404 | Auth pages: login, register, password reset |
-| Portal layout with header, tabs and connection notice | Portal pages: Live Monitoring, Cameras, Events & Alerts, Zones, Employees, Reports, Notifications, Profile, Settings |
-| Module selection page (review, select, config snippet; not saved) | Saving or applying module selections (needs a backend endpoint) |
-| Live dashboard: MJPEG video, telemetry, current frame, source, modules, event log | Anything needing new backend endpoints (authentication, camera or zone management, configuration, reports) |
-| Shared polling via `PipelineProvider` | |
-| Connection states, restart detection, tab-visibility pausing | |
+| Portal layout with header, tabs and connection notice | Portal pages: Zones, Employees, Reports, Notifications, Profile, Settings |
+| Multi-camera dashboard: camera strip, MJPEG video, telemetry, current frame, source, modules, event log | Notifications or alert delivery (the backend only reports events) |
+| Live Monitoring: selected camera's stream, full frame tables, source, telemetry | Event history beyond the backend's 200-event buffer |
+| Events & Alerts: severity summary, client-side filters, full log | Anything needing new backend endpoints (authentication, zone management, reports) |
+| Cameras page: one form per camera; Apply restarts the backend's pipelines | |
+| Module selection page (toggling a module applies it to the running backend) | |
+| Shared polling via `PipelineProvider`; connection states, restart detection, tab-visibility pausing | |
 
-Live Monitoring and Events & Alerts can be built from data the backend
-already exposes. The other portal pages need backend support that does not
-exist yet; build them as clearly labelled placeholders rather than with invented
-data.
+The remaining portal pages need backend support that does not exist yet. Build
+them as clearly labelled placeholders rather than with invented data, and add
+them to `PORTAL_NAV` only when they show something real.
+
+Moving between Dashboard and Live Monitoring closes one stream connection and
+opens another (each page shows the video). Polling and the event log carry over
+untouched, because both live in `PipelineProvider`.
 
 ## Known limitations
 
