@@ -12,7 +12,7 @@ from computer_vision.modules.registry import (
     ModuleRegistry,
     register_module,
 )
-from tests.conftest import make_module
+from tools.tests.conftest import make_module
 
 
 def config_with(modules: dict):
@@ -181,7 +181,7 @@ class TestDependencyOrdering:
 
 class TestLazyDeclaration:
     def test_declared_module_is_imported_on_demand(self):
-        ModuleRegistry.declare("lazy_module", "tests.fixtures_lazy_module:LazyModule")
+        ModuleRegistry.declare("lazy_module", "tools.tests.fixtures_lazy_module:LazyModule")
         resolved = ModuleRegistry.resolve("lazy_module")
         assert resolved.module_name == "lazy_module"
 

@@ -23,7 +23,7 @@ from computer_vision.modules.detection.object import ObjectDetectionModule
 from computer_vision.modules.detection.person import PersonDetectionModule
 from computer_vision.modules.detection.vehicle import VehicleDetectionModule
 from computer_vision.modules.registry import ModuleRegistry
-from tests.conftest import FakeDetectorBackend, inner_backend
+from tools.tests.conftest import FakeDetectorBackend, inner_backend
 
 
 def raw(label: str, conf: float = 0.9, box=(10, 10, 60, 200)):
@@ -266,7 +266,7 @@ class TestPipelineSharing:
     def test_three_detectors_cost_one_inference_per_frame(self):
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
-        from tests.test_pipeline import RecordingSink, SyntheticSource
+        from tools.tests.test_pipeline import RecordingSink, SyntheticSource
 
         FakeDetectorBackend.scripted = [raw("person"), raw("car")]
         config = build_config(
@@ -299,7 +299,7 @@ class TestPipelineSharing:
     def test_shutdown_unloads_exactly_once(self):
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
-        from tests.test_pipeline import RecordingSink, SyntheticSource
+        from tools.tests.test_pipeline import RecordingSink, SyntheticSource
 
         FakeDetectorBackend.scripted = [raw("person")]
         config = build_config(

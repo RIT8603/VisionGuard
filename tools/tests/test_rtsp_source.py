@@ -506,7 +506,7 @@ class TestPipelineIntegration:
 
     def test_pipeline_runs_an_rtsp_stream(self, fake_stream):
         from computer_vision.core.pipeline import RunLimits
-        from tests.test_pipeline import RecordingSink
+        from tools.tests.test_pipeline import RecordingSink
 
         config = build_config(
             {
@@ -523,7 +523,7 @@ class TestPipelineIntegration:
     def test_a_transient_gap_does_not_end_the_run(self, fake_stream):
         """The Phase 1 pipeline treated a None read as end-of-stream."""
         from computer_vision.core.pipeline import RunLimits
-        from tests.test_pipeline import RecordingSink
+        from tools.tests.test_pipeline import RecordingSink
 
         config = build_config(
             {
@@ -565,7 +565,7 @@ class TestPipelineIntegration:
     def test_a_prolonged_stall_ends_the_run(self, fake_stream):
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
-        from tests.test_pipeline import RecordingSink
+        from tools.tests.test_pipeline import RecordingSink
 
         config = build_config(
             {
@@ -592,7 +592,7 @@ class TestPipelineIntegration:
 
     def test_stall_check_can_be_disabled(self, fake_stream):
         from computer_vision.core.pipeline import RunLimits
-        from tests.test_pipeline import RecordingSink
+        from tools.tests.test_pipeline import RecordingSink
 
         config = build_config(
             {

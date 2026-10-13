@@ -21,7 +21,7 @@ from computer_vision.modules.detection.ppe import PPEDetectionModule
 from computer_vision.modules.detection.smoke import SmokeDetectionModule
 from computer_vision.modules.detection.vehicle import VehicleDetectionModule
 from computer_vision.modules.registry import ModuleDependencyError, ModuleRegistry
-from tests.conftest import FakeDetectorBackend, inner_backend
+from tools.tests.conftest import FakeDetectorBackend, inner_backend
 
 STOCK_MODULES = [ObjectDetectionModule, VehicleDetectionModule, PersonDetectionModule]
 CUSTOM_MODEL_MODULES = [PPEDetectionModule, FireDetectionModule, SmokeDetectionModule]
@@ -439,7 +439,7 @@ class TestCombinedPipeline:
         """person + vehicle + crowd + tracking, each in its own namespace."""
         from computer_vision.core.frame_processor import FrameProcessor
         from computer_vision.core.pipeline import VisionPipeline
-        from tests.test_pipeline import RecordingSink, SyntheticSource
+        from tools.tests.test_pipeline import RecordingSink, SyntheticSource
 
         FakeDetectorBackend.scripted = [
             raw("person", 0.9, (10, 10, 60, 200)),

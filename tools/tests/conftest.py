@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Tuple, Type
 import numpy as np
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # tools/tests -> project root
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -149,7 +149,7 @@ def fake_detector_backend(monkeypatch):
     FakeDetectorBackend.scripted_sequence = None
     FakeDetectorBackend.fail_on_load = False
     monkeypatch.setitem(
-        detector_factory.BACKENDS, "fake", "tests.conftest:FakeDetectorBackend"
+        detector_factory.BACKENDS, "fake", "tools.tests.conftest:FakeDetectorBackend"
     )
     yield FakeDetectorBackend
     FakeDetectorBackend.scripted = []
