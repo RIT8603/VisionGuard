@@ -15,6 +15,7 @@ from computer_vision.sources.base import (
 )
 from computer_vision.sources.factory import create_video_source
 from computer_vision.sources.webcam import WebcamSource
+from computer_vision.sources.youtube import YouTubeSource
 
 __all__ = [
     "BaseVideoSource",
@@ -25,5 +26,6 @@ __all__ = [
     "SourceOpenError",
     "VideoSourceError",
     "WebcamSource",
+    "YouTubeSource",
     "create_video_source",
 ]

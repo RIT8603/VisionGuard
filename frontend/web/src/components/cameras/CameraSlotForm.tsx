@@ -27,8 +27,9 @@ interface CameraSlotFormProps {
 
 const SOURCE_LABEL: Record<SourceType, string> = {
   rtsp: 'RTSP / IP camera',
-  webcam: 'Webcam / HDMI capture card',
+  youtube: 'YouTube Stream',
   file: 'Video file',
+  webcam: 'Webcam / HDMI capture card',
 };
 
 /** One camera slot: name, source type, and the field(s) that type needs. */
@@ -146,6 +147,28 @@ export function CameraSlotForm({
             <p className="field-help">
               The password is saved on the machine running VisionGuard and is never shown again
               (it appears as <code>***</code>). Leave that as it is to keep it.
+            </p>
+          </div>
+        )}
+
+        {draft.source === 'youtube' && (
+          <div className="field">
+            <label htmlFor={`${base}-youtube-url`}>YouTube stream URL</label>
+            <input
+              id={`${base}-youtube-url`}
+              className="mono"
+              type="text"
+              value={draft.youtubeUrl}
+              placeholder="https://www.youtube.com/watch?v=... or https://www.youtube.com/live/..."
+              autoComplete="off"
+              spellCheck={false}
+              disabled={disabled}
+              aria-invalid={problem !== null}
+              aria-describedby={problem ? problemId : undefined}
+              onChange={(event) => onChange({ youtubeUrl: event.target.value })}
+            />
+            <p className="field-help">
+              Enter a public YouTube Live stream or video URL (e.g. <code>https://www.youtube.com/watch?v=...</code>, <code>https://www.youtube.com/live/...</code>, or <code>https://youtu.be/...</code>).
             </p>
           </div>
         )}

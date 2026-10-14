@@ -66,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="VisionGuard AI - modular real-time computer vision platform",
     )
     parser.add_argument("--config", help="Path to config.yaml (default: configs/config.yaml)")
-    parser.add_argument("--source", choices=["webcam", "file", "rtsp"], help="Override video.source")
+    parser.add_argument("--source", choices=["webcam", "file", "rtsp", "youtube"], help="Override video.source")
     parser.add_argument("--device-id", type=int, help="Override video.device_id")
     parser.add_argument("--video-path", help="Override video.path (file source)")
     parser.add_argument("--loop", action="store_true", help="Loop the video file")
@@ -77,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--start-frame", type=int, help="Seek here before the first frame")
     parser.add_argument("--rtsp-url", help="Override video.rtsp_url (rtsp source)")
+    parser.add_argument("--youtube-url", help="Override video.youtube_url (youtube source)")
     parser.add_argument("--width", type=int, help="Override requested capture width")
     parser.add_argument("--height", type=int, help="Override requested capture height")
     parser.add_argument("--target-width", type=int, help="Override processing.target_width")
@@ -114,6 +115,8 @@ def infer_source(args: argparse.Namespace) -> str | None:
         return "file"
     if args.rtsp_url:
         return "rtsp"
+    if args.youtube_url:
+        return "youtube"
     return None
 
 
@@ -126,6 +129,7 @@ def cli_overrides(args: argparse.Namespace) -> Dict[str, Dict[str, Any]]:
             "device_id": args.device_id,
             "path": args.video_path,
             "rtsp_url": args.rtsp_url,
+            "youtube_url": args.youtube_url,
             "width": args.width,
             "height": args.height,
             "loop": True if args.loop else None,

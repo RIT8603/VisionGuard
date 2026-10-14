@@ -14,6 +14,7 @@ from computer_vision.sources.base import BaseVideoSource
 from computer_vision.sources.rtsp import RTSPSource
 from computer_vision.sources.video_file import VideoFileSource
 from computer_vision.sources.webcam import WebcamSource
+from computer_vision.sources.youtube import YouTubeSource
 from computer_vision.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -24,6 +25,7 @@ _BUILDERS: Dict[VideoSourceType, SourceBuilder] = {
     VideoSourceType.WEBCAM: lambda cfg, sid: WebcamSource(cfg, sid),
     VideoSourceType.FILE: lambda cfg, sid: VideoFileSource(cfg, sid),
     VideoSourceType.RTSP: lambda cfg, sid: RTSPSource(cfg, sid),
+    VideoSourceType.YOUTUBE: lambda cfg, sid: YouTubeSource(cfg, sid),
 }
 
 
@@ -61,4 +63,5 @@ def available_source_types() -> Dict[str, bool]:
         VideoSourceType.WEBCAM.value: True,
         VideoSourceType.FILE.value: True,
         VideoSourceType.RTSP.value: True,
+        VideoSourceType.YOUTUBE.value: True,
     }
