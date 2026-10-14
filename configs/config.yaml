@@ -160,62 +160,12 @@ modules:
     # ultralytics = needed for .pt weights; also runs exports.
     # Detectors share one inference only when backend, model, device and
     # imgsz all agree - keep the four the same on every detector.
-    backend: openvino
-    # YOLO11s exported to OpenVINO with 8-bit weights: a larger, more
-    # accurate model than yolo11n, and about as fast as yolo11n.pt at 640
-    # was under PyTorch. Needs `pip install openvino`.
-    # yolo11s_openvino_model (16-bit) sits beside it: same accuracy, about
-    # 2x slower on a CPU, kept as the reference the 8-bit one was checked
-    # against (digest 30ded5cea4672289ffa1ebe00e9a93bbe561ce51e0286f5923a5e09bc84d71a3).
-    # To go back to the PyTorch weights, use these four lines instead:
-    #   backend: ultralytics
-    #   model: computer_vision/Model/detection/yolo11n.pt
-    #   model_sha256: 0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1
-    #   device: cpu
-    #   imgsz: 960
-    # (and the same on object_detection / vehicle_detection below).
-    #
-    # FASTER, LESS ACCURATE: the same model exported at 384x640 runs about
-    # 2.2x faster but sees distant people worse - on the street test clip
-    # person recall fell from 0.64 to 0.47. Worth it for near-field cameras
-    # (a doorway, a counter), not for a wide street view. To use it, on every
-    # detector:
-    #   model: computer_vision/Model/detection/yolo11s_int8_384_openvino_model
-    #   model_sha256: 7e8f33bee26e42d5a54fa4c1d1b7e0719b80969361c5f0f446cc80f791333313
-    #   imgsz: [384, 640]
-    #
-    # `python -m tools.diagnose_speed` times both, on CPU and on the
-    # integrated GPU, on this machine - run it before choosing.
-    model: computer_vision/Model/detection/yolo11s_int8_openvino_model
-    # The model is pinned and checked before loading. For a .pt file this is
-    # its SHA-256 (.pt weights are pickles - loading one runs code); for an
-    # exported model directory it is the digest of every file in it.
-    # A missing .pt is an error unless allow_download: true.
-    model_sha256: 535501d57695171dce9244c053c4c09950b2576fda2b696950bcb76982ef9303
-    # intel:auto = time the CPU and the Intel graphics chip at start-up and use
-    # the faster one (graphics only if it loads, is clearly faster and gives
-    # the same scores; otherwise CPU). The log line "device auto: ..." says
-    # which was chosen. Force one with intel:cpu or intel:gpu.
-    device: intel:auto     # .pt: cpu | cuda | 0 ...   OpenVINO: intel:auto | intel:cpu | intel:gpu
-                           # intel:gpu = integrated graphics; often faster
-                           # than the CPU and leaves the CPU free for video
-                           # decoding. First start compiles for ~30 s.
-    # Inference resolution. An exported model takes exactly the [height,
-    # width] it was exported with; this one matches a 16:9 frame at
-    # target_width 960, so distant (small) people are not shrunk away before
-    # the model sees them. Detectors only share one inference when model,
-    # device and imgsz agree - keep all three the same on every detector
-    # that uses this model.
-    imgsz: [544, 960]
-    # 0.5 was tried and put back: on the street test clip it bought 1 point
-    # of precision (0.97 -> 0.98) for 9 points of recall (0.64 -> 0.55), and
-    # tracking accuracy fell with it (MOTA 0.55 -> 0.46 at 2 fps). The wrong
-    # boxes on that clip score 0.6-0.8, so no threshold in this range removes
-    # them; it only loses distant people.
+    backend: ultralytics
+    model: computer_vision/Model/detection/yolo11n.pt
+    model_sha256: 0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1
+    device: cpu
+    imgsz: 640
     confidence_threshold: 0.35
-    # Boxes scoring between this and confidence_threshold are not reported,
-    # but person_tracking may use one to keep an existing id alive through a
-    # weak frame (a person half hidden by an umbrella). Remove to turn off.
     candidate_threshold: 0.25
     min_box_area: 0        # discard boxes smaller than this many pixels
 
@@ -226,11 +176,11 @@ modules:
   object_detection:
     enabled: true
     # backend / model / device / imgsz: same as person_detection, so they share one inference
-    backend: openvino
-    model: computer_vision/Model/detection/yolo11s_int8_openvino_model
-    model_sha256: 535501d57695171dce9244c053c4c09950b2576fda2b696950bcb76982ef9303
-    device: intel:auto
-    imgsz: [544, 960]
+    backend: ultralytics
+    model: computer_vision/Model/detection/yolo11n.pt
+    model_sha256: 0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1
+    device: cpu
+    imgsz: 640
     confidence_threshold: 0.4
     labels: []             # empty = every class the model knows (80 for COCO)
     # People and vehicles already have their own detectors and trackers.
@@ -243,11 +193,11 @@ modules:
   vehicle_detection:
     enabled: true
     # backend / model / device / imgsz: same as person_detection, so they share one inference
-    backend: openvino
-    model: computer_vision/Model/detection/yolo11s_int8_openvino_model
-    model_sha256: 535501d57695171dce9244c053c4c09950b2576fda2b696950bcb76982ef9303
-    device: intel:auto
-    imgsz: [544, 960]
+    backend: ultralytics
+    model: computer_vision/Model/detection/yolo11n.pt
+    model_sha256: 0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1
+    device: cpu
+    imgsz: 640
     confidence_threshold: 0.4
     candidate_threshold: 0.25   # see person_detection
     labels: [car, truck, bus, motorcycle, bicycle]

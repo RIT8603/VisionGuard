@@ -156,7 +156,7 @@ def _publish_info(
         state = hub.get(rt.id)
         if state is None:
             continue
-        state.info = {
+        state.update_info({
             "app": config.app.name,
             "version": __version__,
             "source_type": rt.spec.video.source.value,
@@ -168,7 +168,7 @@ def _publish_info(
                 {"name": m.module_name, "type": m.module_type.value, "version": m.version}
                 for m in rt.modules
             ],
-        }
+        })
 
 
 def start_dashboard(

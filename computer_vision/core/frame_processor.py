@@ -12,7 +12,7 @@ import cv2
 
 from computer_vision.core.config import ProcessingConfig
 from computer_vision.core.context import FrameContext
-from computer_vision.sources.base import FramePacket
+from computer_vision.sources.base import FramePacket, is_valid_frame
 from computer_vision.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -28,6 +28,14 @@ class FrameProcessor:
     def build_context(self, packet: FramePacket) -> FrameContext:
         """Preprocess ``packet`` and wrap it in a fresh context."""
         frame = packet.frame
+        if not is_valid_frame(frame):
+            shape_str = getattr(frame, "shape", None)
+            dtype_str = getattr(frame, "dtype", None)
+            raise ValueError(
+                f"Invalid frame from source '{packet.source_id}': expected non-empty 3-channel uint8 array, "
+                f"got shape={shape_str}, dtype={dtype_str}"
+            )
+
         original_size = (packet.width, packet.height)
 
         if self._config.mirror:
@@ -61,6 +69,8 @@ class FrameProcessor:
         boxes computed on an analysed frame only line up on a frame that went
         through the same geometry.
         """
+        if not is_valid_frame(frame):
+            return frame
         if self._config.mirror:
             frame = cv2.flip(frame, 1)
         return self._resize(frame)

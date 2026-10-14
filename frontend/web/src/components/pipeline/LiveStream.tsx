@@ -3,7 +3,7 @@ import { streamUrl } from '../../api/endpoints';
 import type { CameraStatus } from '../../api/types';
 import { STREAM_HOLD_MS, STREAM_RETRY_MS } from '../../config';
 import { DASH } from '../../lib/format';
-import { isReachable, type ViewState } from '../../state/viewState';
+import { type ViewState } from '../../state/viewState';
 import { StateBadge } from './StateBadge';
 
 interface LiveStreamProps {
@@ -23,6 +23,13 @@ interface LiveStreamProps {
   /** Why the selected camera failed, if it did. */
   cameraError?: string | null;
 }
+
+const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+const CLIENT_ID =
+  typeof window !== 'undefined'
+    ? ((window as any).__VG_CLIENT_ID ??= Math.random().toString(36).slice(2, 10))
+    : 'web-client';
 
 const OVERLAY_TEXT: Partial<Record<ViewState, string>> = {
   loading: 'Connecting to backend…',
@@ -54,19 +61,17 @@ export function LiveStream({
   cameraError = null,
 }: LiveStreamProps) {
   // A failed or stopped camera has no stream to open: the backend ends the
-  // connection at once, which used to read as "Stream interrupted" and retry
-  // forever. Say what is actually wrong with that camera instead.
+  // connection at once. Say what is actually wrong with that camera instead.
   const cameraDown = cameraStatus === 'failed' || cameraStatus === 'offline';
-  const shouldStream = active && isReachable(viewState) && !cameraDown;
+  const shouldStream = active && viewState !== 'offline' && viewState !== 'stopped' && !cameraDown;
   const [nonce, setNonce] = useState(0);
   const [broken, setBroken] = useState(false);
   const [held, setHeld] = useState(false);
+  const [isSwitching, setIsSwitching] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Open a fresh connection whenever streaming (re)starts or the backend was
-  // replaced. Adjusting state during render (rather than in an effect) means
-  // the <img> mounts once, with the new URL, instead of connecting twice.
+  // Open a fresh connection whenever streaming (re)starts or the backend was replaced.
   const connectionKey = `${shouldStream}:${restartCount}:${camera ?? ''}`;
   const [lastKey, setLastKey] = useState(connectionKey);
   if (connectionKey !== lastKey) {
@@ -86,6 +91,14 @@ export function LiveStream({
     }, STREAM_RETRY_MS);
     return () => window.clearTimeout(timer);
   }, [broken, shouldStream]);
+
+  // Automatically clear broken / reconnecting state as soon as status indicates live
+  useEffect(() => {
+    if (viewState === 'live') {
+      if (broken) setBroken(false);
+      if (isSwitching) setIsSwitching(false);
+    }
+  }, [viewState, broken, isSwitching]);
 
   // Keep the canvas a recent copy of what the <img> shows.
   useEffect(() => {
@@ -108,16 +121,25 @@ export function LiveStream({
     return () => window.clearInterval(timer);
   }, [shouldStream]);
 
-  // Another camera's last frame must not stand in for this one.
+  // Cleanly terminate old stream connection on camera switch, clear held canvas and mark switching
   useEffect(() => {
+    setIsSwitching(true);
+    setBroken(false);
+    setHeld(false);
     const canvas = canvasRef.current;
     if (canvas) canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
-    setHeld(false);
+    setNonce((n) => n + 1);
+
+    return () => {
+      if (imgRef.current) {
+        imgRef.current.onload = null;
+        imgRef.current.onerror = null;
+        imgRef.current.src = BLANK_IMAGE;
+      }
+    };
   }, [camera]);
 
   const reconnecting = broken && shouldStream;
-  // With a held frame on screen a small tag says enough; covering the
-  // picture with a message is for when there is no picture.
   const cameraOverlay =
     cameraStatus === 'failed'
       ? `This camera failed: ${cameraError ?? 'see the Cameras page'}`
@@ -126,9 +148,15 @@ export function LiveStream({
         : cameraStatus === 'starting' && !held
           ? 'Camera starting…'
           : null;
+
   const overlay =
     cameraOverlay ??
-    (reconnecting && !held ? 'Stream interrupted — reconnecting…' : OVERLAY_TEXT[viewState]);
+    (isSwitching && !held
+      ? 'Connecting to camera…'
+      : reconnecting && !held
+        ? 'Stream interrupted — reconnecting…'
+        : OVERLAY_TEXT[viewState]);
+
   const aspectRatio = resolution ? `${resolution.width} / ${resolution.height}` : '16 / 9';
 
   return (
@@ -146,13 +174,21 @@ export function LiveStream({
       </header>
       <div className="stream" style={{ aspectRatio }}>
         <canvas ref={canvasRef} className="stream-held" aria-hidden="true" />
-        {shouldStream && !broken && (
+        {shouldStream && (
           <img
-            key={nonce}
+            key={`${camera ?? 'default'}:${nonce}`}
             ref={imgRef}
-            src={streamUrl(nonce, camera)}
+            src={streamUrl(nonce, camera, CLIENT_ID)}
             alt="Live camera view with detections drawn by the backend"
-            onError={() => setBroken(true)}
+            onLoad={() => {
+              setIsSwitching(false);
+              setBroken(false);
+            }}
+            onError={() => {
+              if (!isSwitching) {
+                setBroken(true);
+              }
+            }}
           />
         )}
         {overlay && (

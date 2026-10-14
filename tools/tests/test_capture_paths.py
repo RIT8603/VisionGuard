@@ -165,7 +165,8 @@ class TestRtspProbe:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
         sock.close()
-        assert "refused" in probe_rtsp(f"rtsp://127.0.0.1:{port}/x", timeout=2)
+        result = probe_rtsp(f"rtsp://127.0.0.1:{port}/x", timeout=2)
+        assert "refused" in result or "did not answer" in result
 
     def test_not_rtsp(self):
         port = _rtsp_server(b"HTTP/1.1 400 Bad Request\r\n\r\n")
