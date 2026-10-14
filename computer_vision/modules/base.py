@@ -190,6 +190,10 @@ class BaseAIModule(ABC):
         :class:`ModuleResult` describing the same data.
         """
 
+    def reset(self) -> None:
+        """Reset internal state (e.g. on camera switch or loop rewind)."""
+        pass
+
     def cleanup(self) -> None:
         """Release resources. Safe to call more than once.
 

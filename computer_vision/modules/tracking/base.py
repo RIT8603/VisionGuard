@@ -109,6 +109,14 @@ class BaseTrackingModule(BaseAIModule):
             self._tracker.min_hits,
         )
 
+    def reset(self) -> None:
+        """Reset internal tracker state without destroying tracker instance."""
+        if self._tracker is not None:
+            self._tracker.reset()
+        self._last_frame_ts = None
+        self._frame_gap = None
+        super().reset()
+
     def cleanup(self) -> None:
         if self._tracker is not None:
             self._tracker.reset()

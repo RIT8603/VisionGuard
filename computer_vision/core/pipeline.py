@@ -268,6 +268,10 @@ class VisionPipeline:
     def _shutdown(self) -> None:
         for module in self.modules:
             try:
+                module.reset()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
                 module.cleanup()
             except Exception:  # noqa: BLE001 - one bad cleanup must not block the rest
                 logger.warning("cleanup() failed for module '%s'", module.module_name)

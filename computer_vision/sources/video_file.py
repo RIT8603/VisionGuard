@@ -167,7 +167,10 @@ class VideoFileSource(OpenCVVideoSource):
             # a failed read is assumed to be EOF rather than a decode error.
             return True
         position = int(self._capture.get(cv2.CAP_PROP_POS_FRAMES) or 0)
-        return position >= self._frame_count
+        # Container metadata frame counts can differ by several frames from
+        # actual decodable frames (e.g. keyframe index offsets, demuxer padding).
+        # Any read failure within 10 frames of reported EOF is considered EOF.
+        return position >= max(1, self._frame_count - 10)
 
     def _rewind(self) -> None:
         if self._capture is None:

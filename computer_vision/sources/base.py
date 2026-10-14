@@ -12,7 +12,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Iterator, Optional, Tuple
+from typing import Any, Iterator, Optional, Tuple
 
 import numpy as np
 
@@ -71,6 +71,20 @@ class SourceInfo:
             "backend": self.backend,
             "description": self.description,
         }
+
+
+def is_valid_frame(frame: Any) -> bool:
+    """Validate that frame is a non-empty, 3-channel image array."""
+    if frame is None or not isinstance(frame, np.ndarray):
+        return False
+    if frame.size == 0 or frame.ndim != 3:
+        return False
+    height, width, channels = frame.shape
+    if height <= 0 or width <= 0 or channels != 3:
+        return False
+    if frame.dtype != np.uint8:
+        return False
+    return True
 
 
 @dataclass
