@@ -16,6 +16,7 @@ export interface CameraDraft {
   name: string;
   source: SourceType;
   rtspUrl: string;
+  youtubeUrl: string;
   deviceId: string;
   path: string;
   loop: boolean;
@@ -34,6 +35,7 @@ export function blankDraft(): CameraDraft {
     name: '',
     source: 'rtsp',
     rtspUrl: '',
+    youtubeUrl: '',
     deviceId: '0',
     path: '',
     loop: false,
@@ -52,6 +54,7 @@ export function draftFromCamera(camera: CameraInfo): CameraDraft {
     name: camera.name === camera.id ? '' : camera.name,
     source: camera.source,
     rtspUrl: camera.rtsp_url ?? '',
+    youtubeUrl: camera.youtube_url ?? '',
     deviceId: String(camera.device_id ?? 0),
     path: camera.path ?? '',
     loop: camera.loop ?? false,
@@ -69,6 +72,8 @@ export function toInput(draft: CameraDraft): CameraInput {
 
   if (draft.source === 'rtsp') {
     input.rtsp_url = draft.rtspUrl.trim();
+  } else if (draft.source === 'youtube') {
+    input.youtube_url = draft.youtubeUrl.trim();
   } else if (draft.source === 'webcam') {
     input.device_id = Number.parseInt(draft.deviceId, 10);
   } else {
@@ -81,6 +86,8 @@ export function toInput(draft: CameraDraft): CameraInput {
 }
 
 const RTSP_PREFIX = /^rtsps?:\/\//i;
+const YOUTUBE_REGEX =
+  /^https?:\/\/(www\.|m\.)?(youtube\.com\/(watch\?v=|live\/|embed\/|shorts\/)|youtu\.be\/)[\w-]+/i;
 
 /** What is wrong with every draft, by index; an entry is null when the draft is fine. */
 export function validateDrafts(drafts: readonly CameraDraft[]): (string | null)[] {
@@ -90,6 +97,14 @@ export function validateDrafts(drafts: readonly CameraDraft[]): (string | null)[
       const url = draft.rtspUrl.trim();
       if (!url) return 'Enter the camera address.';
       if (!RTSP_PREFIX.test(url)) return 'The address must start with rtsp:// or rtsps://';
+      return null;
+    }
+    if (draft.source === 'youtube') {
+      const url = draft.youtubeUrl.trim();
+      if (!url) return 'Enter the YouTube stream URL.';
+      if (!YOUTUBE_REGEX.test(url)) {
+        return 'Enter a valid YouTube stream URL (e.g. https://www.youtube.com/watch?v=... or https://www.youtube.com/live/...).';
+      }
       return null;
     }
     if (draft.source === 'file') {

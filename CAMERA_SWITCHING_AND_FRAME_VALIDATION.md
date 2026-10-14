@@ -124,3 +124,16 @@ npm.cmd run dev -- --host 127.0.0.1 --port 5173
 ```
 
 Open the dashboard in your browser: **`http://127.0.0.1:5173`**
+
+---
+
+## 6. YouTube Live Stream Integration
+
+VisionGuard now natively supports YouTube Live streams and video URLs alongside RTSP, Webcams, and Video Files.
+
+### Key Capabilities
+- **Direct Live Extraction**: Uses `yt-dlp` to extract direct HLS (`.m3u8`) and MP4 video streams without requiring third-party browser plugins.
+- **Low-Latency Background Reader**: Utilizes `_LatestFrameReader` to continuously drain decoded frames, preventing stream lag from accumulating behind AI inference.
+- **Auto-Token Refresh & Reconnect**: Automatically re-resolves YouTube stream tokens when live chunk manifests expire or during network interruptions with exponential backoff.
+- **Unified Dashboard & UI**: Added **YouTube Stream** option to the Cameras configuration page with live URL validation, persistent YAML storage in `configs/cameras.yaml`, and real-time detection display in the live monitoring view.
+
