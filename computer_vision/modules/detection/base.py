@@ -19,6 +19,7 @@ from computer_vision.core.context import BBox, Detection, FrameContext
 from computer_vision.inference.base import BackendError, DetectorBackend, RawDetection
 from computer_vision.inference.factory import create_detector
 from computer_vision.modules.base import BaseAIModule, ModuleInitializationError, ModuleResult, ModuleType
+from computer_vision.sources.base import is_valid_frame
 
 DEFAULT_BACKEND = "ultralytics"
 DEFAULT_COCO_MODEL = "computer_vision/Model/detection/yolo11n.pt"
@@ -183,6 +184,13 @@ class LabelFilteredDetectionModule(BaseAIModule):
         if self._backend is None:
             raise RuntimeError(
                 f"{type(self).__name__}.process() called before initialize()"
+            )
+
+        if not is_valid_frame(context.frame):
+            return self.make_result(
+                context,
+                detections=[],
+                data={"count": 0, "by_class": {}},
             )
 
         raw = self._backend.infer(context.frame)

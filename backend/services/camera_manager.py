@@ -35,6 +35,7 @@ class CameraManager:
         self._max = max_cameras
         self._editable = editable
         self._lock = threading.Lock()
+        self._switch_lock = threading.Lock()
         self._current: List[CameraConfig] = []
         self._details: Dict[str, Dict[str, Any]] = {}
         self._shared_modules: List[str] | None = None
@@ -97,14 +98,15 @@ class CameraManager:
         if not isinstance(items, list):
             return 400, {"error": "'cameras' must be a list of camera objects"}
 
-        cameras, errors = parse_cameras(
-            items,
-            max_cameras=self._max,
-            existing=self.current(),
-            known_modules=ModuleRegistry.known_names(),
-        )
-        if errors:
-            return 400, {"error": "; ".join(errors)}
+        with self._switch_lock:
+            cameras, errors = parse_cameras(
+                items,
+                max_cameras=self._max,
+                existing=self.current(),
+                known_modules=ModuleRegistry.known_names(),
+            )
+            if errors:
+                return 400, {"error": "; ".join(errors)}
 
-        self._reload.request_cameras(cameras)
-        return 202, {"status": "applying", "cameras": [public_view(cam) for cam in cameras]}
+            self._reload.request_cameras(cameras)
+            return 202, {"status": "applying", "cameras": [public_view(cam) for cam in cameras]}

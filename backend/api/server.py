@@ -262,23 +262,51 @@ async def _plain(send, status: int, body: bytes, extra: Sequence = ()) -> None:
 # --------------------------------------------------------------------------- #
 
 class _StreamSlots:
-    """Counts live MJPEG viewers so they cannot exhaust the server."""
+    """Counts live MJPEG viewers so they cannot exhaust the server.
+
+    Tracks streams per client session so rapid camera switching cleanly supersedes
+    the previous camera stream rather than leaking or exhausting viewer slots.
+    """
 
     def __init__(self, limit: int) -> None:
         self.limit = max(1, int(limit))
         self._active = 0
         self._lock = threading.Lock()
+        self._client_events: Dict[str, asyncio.Event] = {}
 
-    def acquire(self) -> bool:
+    def acquire(self, client_id: Optional[str] = None) -> bool:
         with self._lock:
+            if client_id:
+                if client_id in self._client_events:
+                    # Existing client switching camera: signal old stream to exit immediately
+                    self._client_events[client_id].set()
+                    self._client_events[client_id] = asyncio.Event()
+                    return True
+                if self._active >= self.limit:
+                    return False
+                self._active += 1
+                self._client_events[client_id] = asyncio.Event()
+                return True
+
             if self._active >= self.limit:
                 return False
             self._active += 1
             return True
 
-    def release(self) -> None:
+    def cancel_event_for(self, client_id: Optional[str]) -> Optional[asyncio.Event]:
+        if not client_id:
+            return None
         with self._lock:
-            self._active = max(0, self._active - 1)
+            return self._client_events.get(client_id)
+
+    def release(self, client_id: Optional[str] = None, event: Optional[asyncio.Event] = None) -> None:
+        with self._lock:
+            if client_id and client_id in self._client_events:
+                if event is None or self._client_events[client_id] is event:
+                    del self._client_events[client_id]
+                    self._active = max(0, self._active - 1)
+            else:
+                self._active = max(0, self._active - 1)
 
     @property
     def active(self) -> int:
@@ -290,7 +318,7 @@ def build_app(
     state: DashboardState,
     *,
     policy: AccessPolicy | None = None,
-    max_streams: int = 4,
+    max_streams: int = 16,
     stream_fps: float = 15.0,
     reload: ReloadController | None = None,
     known_modules: FrozenSet[str] = frozenset(),
@@ -312,7 +340,7 @@ def build_app(
     refuses changes.
     """
     try:
-        from fastapi import Body, FastAPI, Query
+        from fastapi import Body, FastAPI, Query, Request
         from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
     except ImportError as exc:  # pragma: no cover - depends on install
         raise DashboardUnavailableError(
@@ -351,7 +379,7 @@ def build_app(
         return FileResponse(STATIC_DIR / "index.html")
 
     @app.get("/api/status")
-    def status(camera: Optional[str] = Query(None, max_length=64)):
+    async def status(camera: Optional[str] = Query(None, max_length=64)):
         chosen = state_for(camera)
         if chosen is None:
             return no_such_camera()
@@ -511,18 +539,22 @@ def build_app(
         return Response(content=jpeg, media_type="image/jpeg")
 
     @app.get("/stream.mjpg", include_in_schema=False)
-    async def stream(camera: Optional[str] = Query(None, max_length=64)):
+    async def stream(
+        request: Request,
+        camera: Optional[str] = Query(None, max_length=64),
+        client: Optional[str] = Query(None, max_length=64),
+    ):
         chosen = state_for(camera)
         if chosen is None:
             return Response(status_code=404, content=b"unknown camera")
-        if slots.active >= slots.limit:
+        if not client and slots.active >= slots.limit:
             return Response(
                 status_code=503,
                 content=b"too many live viewers",
                 headers={"Retry-After": "5"},
             )
         return StreamingResponse(
-            _mjpeg_frames(chosen, slots, poll_interval),
+            _mjpeg_frames(chosen, slots, poll_interval, request=request, client_id=client),
             media_type=f"multipart/x-mixed-replace; boundary={_BOUNDARY}",
         )
 
@@ -535,22 +567,31 @@ def build_app(
 _STREAM_KEEPALIVE_SEC = 2.0
 
 
-async def _mjpeg_frames(state: DashboardState, slots: _StreamSlots, poll_interval: float):
+async def _mjpeg_frames(
+    state: DashboardState,
+    slots: _StreamSlots,
+    poll_interval: float,
+    request: Optional[Any] = None,
+    client_id: Optional[str] = None,
+):
     """Yield multipart JPEG chunks, one per new frame.
 
     Asynchronous on purpose: the previous generator blocked a worker thread
     per viewer, so a few dozen open streams starved every other endpoint.
     Waiting with ``asyncio.sleep`` costs no thread at all.
     """
-    # The slot is taken here, not in the endpoint: if the client goes away
-    # before streaming starts, an un-started generator never runs `finally`
-    # and a slot taken earlier would leak for good.
-    if not slots.acquire():
+    if not slots.acquire(client_id):
         return
+    cancel_event = slots.cancel_event_for(client_id)
     last_seq = 0
     last_sent = time.monotonic()
     try:
         while True:
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            if request is not None and await request.is_disconnected():
+                break
+
             jpeg, seq = state.latest_frame()
             now = time.monotonic()
             # Repeating the current picture while nothing new arrives keeps
@@ -571,7 +612,7 @@ async def _mjpeg_frames(state: DashboardState, slots: _StreamSlots, poll_interva
                 break
             await asyncio.sleep(poll_interval)
     finally:
-        slots.release()
+        slots.release(client_id, cancel_event)
 
 
 # --------------------------------------------------------------------------- #
@@ -621,7 +662,7 @@ class DashboardServer:
         port: int,
         *,
         policy: AccessPolicy | None = None,
-        max_streams: int = 4,
+        max_streams: int = 16,
         stream_fps: float = 15.0,
         reload: ReloadController | None = None,
         known_modules: FrozenSet[str] = frozenset(),

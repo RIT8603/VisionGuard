@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
@@ -51,6 +52,8 @@ class DashboardState:
     info: Dict[str, Any] = field(default_factory=dict)
     started_at: float = field(default_factory=time.time)
     running: bool = True
+    session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    _cached_snapshot: Optional[Dict[str, Any]] = field(default=None, repr=False)
 
     #: Called with each batch of newly published events, outside the lock -
     #: how the alert center hears about them. Must not block for long.
@@ -59,6 +62,24 @@ class DashboardState:
     def __post_init__(self) -> None:
         self._frame_ready = threading.Condition(self._lock)
         self._events = deque(maxlen=self.max_events)
+        self._cached_snapshot = self._build_snapshot()
+
+    def _build_snapshot(self) -> Dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "running": self.running,
+            "uptime_sec": round(time.time() - self.started_at, 1),
+            "info": dict(self.info),
+            "stats": dict(self._stats),
+            "frame": dict(self._summary),
+            "event_count": self._event_seq,
+        }
+
+    def update_info(self, info: Dict[str, Any]) -> None:
+        with self._lock:
+            self.info = dict(info)
+            if self._cached_snapshot is not None:
+                self._cached_snapshot = {**self._cached_snapshot, "info": dict(info)}
 
     # ------------------------------------------------------------------ #
     # Writing (pipeline thread)
@@ -82,6 +103,14 @@ class DashboardState:
             for event in events:
                 self._event_seq += 1
                 self._events.append({"id": self._event_seq, **event})
+            self._cached_snapshot = {
+                "running": self.running,
+                "uptime_sec": round(time.time() - self.started_at, 1),
+                "info": dict(self.info),
+                "stats": dict(self._stats),
+                "frame": dict(self._summary),
+                "event_count": self._event_seq,
+            }
             self._frame_ready.notify_all()
         if events and self.on_events is not None:
             try:
@@ -105,7 +134,19 @@ class DashboardState:
     def stop(self) -> None:
         with self._frame_ready:
             self.running = False
+            if self._cached_snapshot is not None:
+                self._cached_snapshot = {**self._cached_snapshot, "running": False}
             self._frame_ready.notify_all()
+
+    def reset_session(self) -> str:
+        """Reset the camera session ID and clear old frame/detections."""
+        with self._frame_ready:
+            self.session_id = uuid.uuid4().hex[:12]
+            self._summary = {}
+            self._jpeg = None
+            self._cached_snapshot = self._build_snapshot()
+            self._frame_ready.notify_all()
+            return self.session_id
 
     def resume(self) -> None:
         """Flip ``running`` back on after a module reload rebuilds the pipeline.
@@ -117,6 +158,9 @@ class DashboardState:
         """
         with self._frame_ready:
             self.running = True
+            self.session_id = uuid.uuid4().hex[:12]
+            self._summary = {}
+            self._cached_snapshot = self._build_snapshot()
             self._frame_ready.notify_all()
 
     # ------------------------------------------------------------------ #
@@ -124,15 +168,20 @@ class DashboardState:
     # ------------------------------------------------------------------ #
 
     def snapshot(self) -> Dict[str, Any]:
-        with self._lock:
+        """Completely non-blocking read from in-memory cached state dictionary."""
+        cached = self._cached_snapshot
+        if cached is not None:
             return {
-                "running": self.running,
+                "session_id": cached.get("session_id", self.session_id),
+                "running": cached["running"],
                 "uptime_sec": round(time.time() - self.started_at, 1),
-                "info": dict(self.info),
-                "stats": dict(self._stats),
-                "frame": dict(self._summary),
-                "event_count": self._event_seq,
+                "info": dict(cached["info"]),
+                "stats": dict(cached["stats"]),
+                "frame": dict(cached["frame"]),
+                "event_count": cached["event_count"],
             }
+        with self._lock:
+            return self._build_snapshot()
 
     def seconds_since_publish(self) -> Optional[float]:
         """Seconds since the pipeline last published, or None before the first."""
