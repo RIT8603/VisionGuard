@@ -80,6 +80,7 @@ def public_view(camera: CameraConfig) -> Dict[str, Any]:
         "source": camera.source.value,
         "device_id": camera.device_id,
         "rtsp_url": mask_url(camera.rtsp_url),
+        "youtube_url": camera.youtube_url,
         "path": camera.path,
         "loop": camera.loop,
         # None = follows the shared selection; a list = this camera's own.
@@ -152,6 +153,8 @@ def save_camera_file(path: Path, cameras: Sequence[CameraConfig]) -> None:
             entry["path"] = cam.path
             if cam.loop:
                 entry["loop"] = True
+        elif cam.source is VideoSourceType.YOUTUBE:
+            entry["youtube_url"] = cam.youtube_url
         else:
             entry["device_id"] = cam.device_id
         if cam.modules is not None:

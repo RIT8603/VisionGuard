@@ -33,3 +33,7 @@ openvino==2026.4.1
 # Needed only when dashboard.enabled is true.
 fastapi>=0.110
 uvicorn[standard]>=0.29
+
+# --- YouTube streaming ---
+yt-dlp>=2024.0.0
+

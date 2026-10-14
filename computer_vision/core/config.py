@@ -50,6 +50,7 @@ class VideoSourceType(str, Enum):
     WEBCAM = "webcam"
     FILE = "file"
     RTSP = "rtsp"
+    YOUTUBE = "youtube"
 
 
 class CaptureBackend(str, Enum):
@@ -148,6 +149,9 @@ class VideoConfig(BaseModel):
         ),
     )
 
+    # YouTube source
+    youtube_url: str | None = None
+
     # Resilience
     open_timeout_sec: float = 10.0
     read_timeout_sec: float = Field(
@@ -241,6 +245,8 @@ class VideoConfig(BaseModel):
             raise ValueError("video.path is required when video.source is 'file'")
         if self.source is VideoSourceType.RTSP and not self.rtsp_url:
             raise ValueError("video.rtsp_url is required when video.source is 'rtsp'")
+        if self.source is VideoSourceType.YOUTUBE and not self.youtube_url:
+            raise ValueError("video.youtube_url is required when video.source is 'youtube'")
         return self
 
     def resolved_source_id(self) -> str:
@@ -251,12 +257,25 @@ class VideoConfig(BaseModel):
             return f"webcam-{self.device_id}"
         if self.source is VideoSourceType.FILE:
             return f"file-{Path(self.path or 'unknown').stem}"
+        if self.source is VideoSourceType.YOUTUBE:
+            return "youtube-0"
         return "rtsp-0"
 
 
 #: Camera ids are used in URLs and file names, so keep them boring.
 _CAMERA_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 _RTSP_SCHEMES = ("rtsp", "rtsps")
+_YOUTUBE_URL_REGEX = re.compile(
+    r"^https?://(www\.|m\.)?(youtube\.com/(watch\?v=|live/|embed/|shorts/)|youtu\.be/)[a-zA-Z0-9_\-]+",
+    re.IGNORECASE,
+)
+
+
+def is_youtube_url(url: str | None) -> bool:
+    """True if ``url`` looks like a standard YouTube watch, live, or short link."""
+    if not url:
+        return False
+    return bool(_YOUTUBE_URL_REGEX.match(url.strip()))
 
 
 class CameraConfig(BaseModel):
@@ -279,6 +298,7 @@ class CameraConfig(BaseModel):
     source: VideoSourceType = VideoSourceType.RTSP
     device_id: int = 0
     rtsp_url: str | None = None
+    youtube_url: str | None = None
     path: str | None = None
     loop: bool = False
     modules: List[str] | None = Field(
@@ -334,7 +354,7 @@ class CameraConfig(BaseModel):
             raise ValueError("device_id must be >= 0")
         return value
 
-    @field_validator("rtsp_url", "path", mode="before")
+    @field_validator("rtsp_url", "path", "youtube_url", mode="before")
     @classmethod
     def _blank_is_none(cls, value):
         if isinstance(value, str) and not value.strip():
@@ -353,6 +373,13 @@ class CameraConfig(BaseModel):
                 raise ValueError("rtsp_url must start with rtsp:// or rtsps://")
         elif self.source is VideoSourceType.FILE and not self.path:
             raise ValueError("path is required for a file camera")
+        elif self.source is VideoSourceType.YOUTUBE:
+            if not self.youtube_url:
+                raise ValueError("youtube_url is required for a youtube camera")
+            if not is_youtube_url(self.youtube_url):
+                raise ValueError(
+                    "youtube_url must be a valid YouTube URL (e.g. https://www.youtube.com/watch?v=... or https://www.youtube.com/live/... or https://youtu.be/...)"
+                )
         return self
 
     @property
@@ -367,6 +394,7 @@ class CameraConfig(BaseModel):
             source_id=self.id,
             device_id=self.device_id,
             rtsp_url=self.rtsp_url,
+            youtube_url=self.youtube_url,
             path=self.path,
             loop=self.loop,
         )
