@@ -114,12 +114,20 @@ class TestFactory:
         config = build_config({"video": {"source": "rtsp", "rtsp_url": "rtsp://x"}}).video
         assert isinstance(create_video_source(config), RTSPSource)
 
+    def test_youtube_source_is_available(self):
+        from computer_vision.sources.youtube import YouTubeSource
+
+        config = build_config({"video": {"source": "youtube", "youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}}).video
+        assert isinstance(create_video_source(config), YouTubeSource)
+
     def test_every_source_type_is_now_implemented(self):
-        assert available_source_types() == {"webcam": True, "file": True, "rtsp": True}
+        assert available_source_types() == {"webcam": True, "file": True, "rtsp": True, "youtube": True}
 
     def test_declared_classes_share_the_abstraction(self):
-        """All three sources implement the same contract, today."""
-        for cls in (WebcamSource, VideoFileSource, RTSPSource):
+        """All four sources implement the same contract, today."""
+        from computer_vision.sources.youtube import YouTubeSource
+
+        for cls in (WebcamSource, VideoFileSource, RTSPSource, YouTubeSource):
             assert issubclass(cls, BaseVideoSource)
 
 
@@ -257,4 +265,4 @@ class TestPixelFormat:
 
 
 def test_source_type_enum_covers_the_documented_set():
-    assert {t.value for t in VideoSourceType} == {"webcam", "file", "rtsp"}
+    assert {t.value for t in VideoSourceType} == {"webcam", "file", "rtsp", "youtube"}

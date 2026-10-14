@@ -10,7 +10,7 @@
 
 export type Severity = 'info' | 'warning' | 'critical';
 export type ModuleType = 'detection' | 'recognition' | 'tracking' | 'analysis';
-export type SourceType = 'webcam' | 'file' | 'rtsp';
+export type SourceType = 'webcam' | 'file' | 'rtsp' | 'youtube';
 
 /** [x1, y1, x2, y2] in pixels of `FrameSummary.resolution`. */
 export type BBox = [number, number, number, number];
@@ -213,6 +213,7 @@ export interface CameraInfo {
   event_count: number;
   device_id?: number;
   rtsp_url?: string | null;
+  youtube_url?: string | null;
   path?: string | null;
   loop?: boolean;
   /** Backend module keys this camera runs on its own; null = the shared selection. */
@@ -238,6 +239,7 @@ export interface CameraInput {
   name?: string;
   source: SourceType;
   rtsp_url?: string;
+  youtube_url?: string;
   device_id?: number;
   path?: string;
   loop?: boolean;
