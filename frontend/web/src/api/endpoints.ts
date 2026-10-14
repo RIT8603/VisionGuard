@@ -49,10 +49,15 @@ function withCamera(params: URLSearchParams, camera: string | null | undefined):
   return params;
 }
 
-export function getStatus(signal?: AbortSignal, camera?: string | null): Promise<StatusResponse> {
+export function getStatus(
+  signal?: AbortSignal,
+  camera?: string | null,
+  timeoutMs?: number,
+): Promise<StatusResponse> {
   const query = withCamera(new URLSearchParams(), camera).toString();
   return getJson(query ? `${ENDPOINTS.status}?${query}` : ENDPOINTS.status, isStatusResponse, {
     signal,
+    timeoutMs,
   });
 }
 
@@ -71,11 +76,15 @@ export function getEvents(
 }
 
 /**
- * The backend ignores `r`; a new `nonce` gives the <img> a new URL, which
- * forces a fresh connection instead of a cached image.
+ * The backend ignores `r` and `t`; appending `t=${Date.now()}` ensures the browser
+ * never serves a stale / cached MJPEG stream connection when switching cameras.
  */
-export function streamUrl(nonce: number, camera?: string | null): string {
-  return `${ENDPOINTS.stream}?${withCamera(new URLSearchParams({ r: String(nonce) }), camera)}`;
+export function streamUrl(nonce: number, camera?: string | null, client?: string): string {
+  const params = new URLSearchParams({ r: String(nonce), t: String(Date.now()) });
+  if (client) {
+    params.set('client', client);
+  }
+  return `${ENDPOINTS.stream}?${withCamera(params, camera)}`;
 }
 
 /** One still frame, for thumbnails. Short-lived requests, unlike the MJPEG stream. */

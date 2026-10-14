@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { hasFrame, hasStats } from '../api/guards';
 import type { FrameSummary, PipelineStats } from '../api/types';
+import { CAMERA_SWITCH_DEBOUNCE_MS } from '../config';
 import { useCameras, type CameraList } from '../hooks/useCameras';
 import { useEventFeed, type EventFeed } from '../hooks/useEventFeed';
 import { usePageVisible } from '../hooks/usePageVisible';
@@ -43,7 +44,24 @@ export function PipelineProvider({ children }: { children: ReactNode }) {
 
   // The operator's choice, kept only while that camera still exists.
   const [selected, setSelected] = useState<string | null>(null);
-  const selectCamera = useCallback((id: string) => setSelected(id), []);
+  const debounceTimerRef = useRef<number | undefined>(undefined);
+
+  const selectCamera = useCallback((id: string) => {
+    if (debounceTimerRef.current !== undefined) {
+      window.clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = window.setTimeout(() => {
+      setSelected(id);
+    }, CAMERA_SWITCH_DEBOUNCE_MS);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current !== undefined) {
+        window.clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
   const list = cameras.data?.cameras ?? [];
   const firstId = list[0]?.id ?? null;
   const camera = selected !== null && list.some((c) => c.id === selected) ? selected : firstId;

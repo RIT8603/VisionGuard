@@ -26,6 +26,7 @@ from computer_vision.inference.base import (
     RawDetection,
     verify_model_file,
 )
+from computer_vision.sources.base import is_valid_frame
 from computer_vision.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -205,6 +206,13 @@ class UltralyticsDetector(DetectorBackend):
     def infer(self, frame: np.ndarray) -> List[RawDetection]:
         if not self._loaded or self._model is None:
             raise ModelLoadError("UltralyticsDetector.infer() called before load()")
+
+        if not is_valid_frame(frame):
+            logger.warning(
+                "UltralyticsDetector.infer received invalid frame (shape=%r)",
+                getattr(frame, "shape", None),
+            )
+            return []
 
         results = self._model.predict(
             source=frame,

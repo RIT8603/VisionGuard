@@ -20,6 +20,7 @@ from computer_vision.sources.base import (
     SourceInfo,
     SourceNotOpenError,
     SourceOpenError,
+    is_valid_frame,
 )
 from computer_vision.utils.logger import get_logger
 
@@ -181,7 +182,7 @@ class OpenCVVideoSource(BaseVideoSource):
         while True:
             started = time.perf_counter()
             ok, frame = self._capture.read()
-            if ok and frame is not None:
+            if ok and is_valid_frame(frame):
                 return FramePacket(
                     frame=frame,
                     frame_id=self._next_frame_id(),

@@ -14,10 +14,13 @@ export const EVENTS_LIMIT = 200;
 /** The backend keeps 200 events by default (dashboard.max_events). */
 export const MAX_FEED_EVENTS = 200;
 
-export const REQUEST_TIMEOUT_MS = 2500;
+export const REQUEST_TIMEOUT_MS = 5000;
 
 /** Consecutive failed status polls before the backend counts as offline. */
-export const OFFLINE_AFTER_FAILURES = 2;
+export const OFFLINE_AFTER_FAILURES = 3;
+
+/** Debounce delay before applying camera switch to avoid connection churn. */
+export const CAMERA_SWITCH_DEBOUNCE_MS = 200;
 
 /** No new frame_id for this long means the video has stalled. */
 export const STALE_AFTER_MS = 3000;

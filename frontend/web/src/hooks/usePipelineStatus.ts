@@ -3,7 +3,7 @@ import { ApiError, toApiError } from '../api/client';
 import { getStatus } from '../api/endpoints';
 import { hasFrame } from '../api/guards';
 import type { StatusResponse } from '../api/types';
-import { RESTART_TOLERANCE_SEC, STATUS_POLL_MS } from '../config';
+import { RESTART_TOLERANCE_SEC, REQUEST_TIMEOUT_MS, STATUS_POLL_MS } from '../config';
 import { deriveViewState, type ViewState } from '../state/viewState';
 
 export interface PipelineStatus {
@@ -60,6 +60,8 @@ export function usePipelineStatus(active: boolean, camera: string | null = null)
     camera: undefined as string | null | undefined,
   });
 
+  const isCameraSwitching = useRef(false);
+
   useEffect(() => {
     if (!active) return;
 
@@ -72,6 +74,7 @@ export function usePipelineStatus(active: boolean, camera: string | null = null)
     // restart count - this is not a backend restart).
     const cameraChanged = t.camera !== camera;
     if (cameraChanged) {
+      isCameraSwitching.current = true;
       t.camera = camera;
       t.data = null;
       t.error = null;
@@ -98,9 +101,13 @@ export function usePipelineStatus(active: boolean, camera: string | null = null)
     };
 
     const tick = async () => {
+      if (controller.signal.aborted) return;
       const startedAt = performance.now();
+      const timeoutMs = isCameraSwitching.current ? 5000 : REQUEST_TIMEOUT_MS;
+
       try {
-        const data = await getStatus(controller.signal, camera);
+        const data = await getStatus(controller.signal, camera, timeoutMs);
+        if (controller.signal.aborted || t.camera !== camera) return;
         const now = Date.now();
 
         // uptime_sec is wall-clock time since the dashboard started, so it
@@ -117,12 +124,14 @@ export function usePipelineStatus(active: boolean, camera: string | null = null)
           t.lastFrameChangeAt = now;
         }
 
+        // Successfully received response: clear any offline and switching flags
+        isCameraSwitching.current = false;
         t.data = data;
         t.error = null;
         t.failures = 0;
         t.lastSuccessAt = now;
       } catch (error) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || t.camera !== camera) return;
         t.failures += 1;
         t.error = toApiError(error);
       }
