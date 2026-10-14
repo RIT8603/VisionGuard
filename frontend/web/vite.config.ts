@@ -22,7 +22,10 @@ export default defineConfig({
 
   server: {
     host: '0.0.0.0',
-    allowedHosts: ['desktop-ikehftb.taile5cc80.ts.net'],
+    allowedHosts: [
+  'desktop-ikehftb.taile5cc80.ts.net',
+  'paracosm13.tail3291a7.ts.net',
+],
     proxy,
   },
 
