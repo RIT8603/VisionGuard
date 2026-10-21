@@ -8,6 +8,7 @@ import '@fontsource/ibm-plex-mono/500.css';
 import '@fontsource/ibm-plex-mono/600.css';
 import './styles/index.css';
 import './styles/public.css';
+import './styles/assistant.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html is missing <div id="root">');
