@@ -200,6 +200,56 @@ Not used: `/api/snapshot.jpg`, and the backend's `/`, which serves the legacy
 page. Every endpoint is GET-only and unauthenticated; none can control the
 pipeline.
 
+## Help assistant
+
+The **Help** button on every page (public and portal; mounted once in
+`src/app/App.tsx`) opens a product-help chat: what
+VisionGuard and each module do, camera setup, and troubleshooting. It answers
+from static product notes only - it never sees cameras, events, alerts or
+settings, and cannot change anything.
+
+It does not talk to the Python backend. The browser calls `/api/assistant`, a
+Vercel Function in `api/assistant.ts`; the AI provider's key stays on the
+server. In `npm run dev` the same handler is served by a small Vite plugin
+(`vite.config.ts`) ahead of the `/api` proxy. `npm run preview` does not serve
+it, so the assistant shows as unavailable there.
+
+| Env var | Purpose |
+|---|---|
+| `ASSISTANT_PROVIDER` | `openrouter` (the only provider so far). Unset = assistant unavailable |
+| `ASSISTANT_MODEL` | **Required.** OpenRouter model id from <https://openrouter.ai/models>. No default, so the price is always an explicit choice; unset = assistant unavailable |
+| `OPENROUTER_API_KEY` | Key for the `openrouter` provider |
+
+Locally, copy `.env.example` to `.env.local` (git-ignored); on Vercel, set them
+as Project Environment Variables. Never give them a `VITE_` prefix - that would
+put the key in the browser bundle.
+
+Layout:
+
+```
+api/assistant.ts               Vercel Function: GET availability, POST chat
+api/_lib/assistant/handler.ts  validation, limits, error mapping
+api/_lib/assistant/provider.ts provider interface + getProvider()
+api/_lib/assistant/openrouter.ts the only provider-specific file (plain fetch, no SDK)
+api/_lib/assistant/knowledge.ts  system prompt; modules come from src/content/moduleCatalog.ts
+```
+
+**Switching provider:** add `api/_lib/assistant/<name>.ts` implementing
+`AssistantProvider` (map its failures to `ProviderError` kinds: `refused`,
+`rate_limited`, `upstream`), add one `case` to `getProvider()`, and set
+`ASSISTANT_PROVIDER`. Nothing outside that folder changes.
+
+**Cost protection.** The portal has no login, so anyone with the URL can use
+the assistant. Requests are capped at 1,000 characters per message and the last
+8 turns, replies are length-capped, and each server instance allows 5 questions
+a minute and 30 an hour per client, and 150 an hour in total. Those counters
+are per instance and reset on cold starts, so for a hard limit also add a
+Vercel Firewall rate-limit rule on `/api/assistant`, and set a spend limit
+with the AI provider.
+
+The deployed project's Root Directory must be `frontend/web` for Vercel to
+pick up `api/`.
+
 ## Dashboard behaviour
 
 ### UI states
