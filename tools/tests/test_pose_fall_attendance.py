@@ -52,6 +52,8 @@ class FakePoseBackend(PoseBackend):
 def fake_pose(monkeypatch):
     FakePoseBackend.scripted = []
     FakePoseBackend.fail_on_load = False
+    # Pose models are shared across cameras; each test starts with none loaded.
+    pose_backend_module._shared_pose.clear()
     monkeypatch.setitem(
         pose_backend_module.POSE_BACKENDS,
         "fake",

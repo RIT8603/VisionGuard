@@ -424,6 +424,15 @@ class ProcessingConfig(BaseModel):
     window_name: str = "VisionGuard AI"
     show_hud: bool = True
     show_boxes: bool = True
+    magic_effect: bool = Field(
+        default=False,
+        description=(
+            "Draw a glowing trail and sparkles that trace how each tracked person "
+            "moves (needs person_tracking). Nothing is drawn over people or their "
+            "face/person boxes. Cosmetic only; can also be switched on and off "
+            "live from the dashboard."
+        ),
+    )
     hud_max_detections: int = Field(
         default=5,
         description="Cap on per-detection HUD lines, so a crowd cannot fill the panel.",
@@ -579,6 +588,40 @@ class DashboardConfig(BaseModel):
         description=(
             "Let the dashboard change the camera list (POST /api/cameras). Set "
             "false to freeze the cameras to configs/cameras.yaml / video:."
+        ),
+    )
+    allow_face_edit: bool = Field(
+        default=True,
+        description=(
+            "Let the dashboard add, edit and delete registered users and "
+            "enrol their faces (/api/face/*). False = the registry is read-only."
+        ),
+    )
+    process_per_camera: bool = Field(
+        default=False,
+        description=(
+            "Run each camera in its own process when there are several, so "
+            "they use all CPU cores instead of sharing one Python interpreter. "
+            "Faster with many cameras, but every camera then loads its own "
+            "models (about 1 GB of RAM each)."
+        ),
+    )
+    snapshot_dir: str = Field(
+        default="data/snapshots",
+        description="Where unknown-person snapshots are saved and served from (/api/snapshots).",
+    )
+    event_db: str = Field(
+        default="data/events.db",
+        description=(
+            "SQLite file every event is appended to (entries/exits, unknown "
+            "people, alerts...). Queried by the Reports page and exported as CSV."
+        ),
+    )
+    face_db: str = Field(
+        default="data/faces/faces.db",
+        description=(
+            "SQLite file holding registered users and their face templates "
+            "(embeddings only, no photographs). Treat it as biometric data."
         ),
     )
 

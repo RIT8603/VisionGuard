@@ -28,6 +28,7 @@ from computer_vision.core.output import BaseOutputSink, MultiSink, WindowSink
 from backend.api.server import DashboardServer, DashboardUnavailableError
 from backend.services.alerts import AlertCenter
 from backend.services.camera_manager import CameraManager
+from backend.services.faces import FaceService
 from backend.services.cameras import cameras_file_for, load_camera_file, save_camera_file
 from backend.services.hub import CameraHub
 from backend.services.reload import ReloadController
@@ -180,6 +181,7 @@ def start_dashboard(
     hub: CameraHub,
     reload: ReloadController,
     settings: SettingsManager | None = None,
+    faces: FaceService | None = None,
 ) -> Tuple["DashboardServer", CameraManager]:
     """Start the dashboard server over ``hub``'s cameras."""
     from backend.api.server import AccessPolicy, DashboardServer
@@ -211,6 +213,8 @@ def start_dashboard(
         hub=hub,
         cameras=manager,
         settings=settings,
+        faces=faces,
+        snapshot_dir=config.dashboard.snapshot_dir,
     )
     server.start()  # raises OSError if the port is taken
 
@@ -406,6 +410,10 @@ def run(args: argparse.Namespace) -> int:
         return EXIT_CONFIG
 
     setup_logging(config.app.log_level, config.app.log_file)
+    # Seeded once: a later rebuild must not undo a toggle made from the dashboard.
+    from computer_vision.utils.magic_fx import set_magic_enabled
+
+    set_magic_enabled(config.processing.magic_effect)
 
     if args.list_modules or args.list_sources:
         print_catalogue(config)
@@ -424,12 +432,22 @@ def run(args: argparse.Namespace) -> int:
     if len(specs) > 1:
         logger.info("Running %d cameras: %s", len(specs), ", ".join(s.id for s in specs))
 
+    from backend.persistence.event_log import EventLog
+
     hub = CameraHub(
         max_events=config.dashboard.max_events,
         alerts=AlertCenter.from_config(config.dashboard.alerts),
+        event_log=EventLog(config.dashboard.event_db) if config.dashboard.enabled else None,
     )
     hub.configure([(s.id, s.name, s.video.source.value) for s in specs])
     use_dashboard = config.dashboard.enabled
+
+    # ---- face registry ----
+    # Built before the modules so the live identity store is already filled
+    # when face_recognition starts, whether or not the dashboard is on.
+    faces: FaceService | None = None
+    if use_dashboard or "face_recognition" in config.enabled_module_names():
+        faces = FaceService.from_config(config)
 
     # ---- modules, sources, outputs (per camera) ----
     runtimes, code = _build_or_report(config, specs, hub if use_dashboard else None)
@@ -444,7 +462,7 @@ def run(args: argparse.Namespace) -> int:
         reload = ReloadController()
         settings = SettingsManager(reload, editable=config.dashboard.allow_settings_edit)
         try:
-            dashboard, manager = start_dashboard(config, hub, reload, settings)
+            dashboard, manager = start_dashboard(config, hub, reload, settings, faces)
         except DashboardUnavailableError as exc:
             cleanup_runtimes(runtimes)
             print(f"\n[dashboard error] {exc}\n", file=sys.stderr)

@@ -179,6 +179,15 @@ class DetectorBackend(ABC):
     def infer(self, frame: np.ndarray) -> List[RawDetection]:
         """Run inference on one BGR frame."""
 
+    def infer_batch(self, frames: Sequence[np.ndarray]) -> List[List[RawDetection]]:
+        """Run inference on several frames; one result list per frame, in order.
+
+        The default runs them one by one. A runtime that can batch (one
+        forward pass for all frames) overrides it - that is what lets several
+        cameras share one GPU model without queueing behind each other.
+        """
+        return [self.infer(frame) for frame in frames]
+
     def unload(self) -> None:
         """Release the model. Safe to call more than once."""
         self._loaded = False

@@ -64,6 +64,11 @@ class YuNetFaceDetector(FaceDetectorBackend):
         score_threshold: Detector-side score cut. Default 0.6.
         nms_threshold: Overlap suppression. Default 0.3.
         top_k: Maximum candidates considered before NMS.
+        detect_max_side: Shrink the frame so its longest side is at most this
+            before detecting (0 = never). Detection is the only CPU-bound face
+            step; on a 960x1707 frame, detecting at 960 is ~3x faster. Boxes
+            and landmarks are scaled back, so recognition still crops from the
+            full-resolution frame.
     """
 
     name = "yunet"
@@ -75,6 +80,7 @@ class YuNetFaceDetector(FaceDetectorBackend):
         self._score = float(self.params.get("score_threshold", 0.6))
         self._nms = float(self.params.get("nms_threshold", 0.3))
         self._top_k = int(self.params.get("top_k", 5000))
+        self._max_side = int(self.params.get("detect_max_side", 0))
 
     def load(self) -> None:
         if self._loaded:
@@ -95,16 +101,26 @@ class YuNetFaceDetector(FaceDetectorBackend):
         if not self._loaded or self._detector is None:
             raise ModelLoadError("YuNetFaceDetector.detect() called before load()")
 
-        height, width = frame.shape[:2]
+        image, scale = frame, 1.0
+        longest = max(frame.shape[:2])
+        if self._max_side and longest > self._max_side:
+            scale = self._max_side / longest
+            image = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+
+        height, width = image.shape[:2]
         if (width, height) != self._input_size:
             # YuNet must be told the frame size before every differently
             # sized frame, or it silently returns nothing.
             self._detector.setInputSize((width, height))
             self._input_size = (width, height)
 
-        _, raw = self._detector.detect(frame)
+        _, raw = self._detector.detect(image)
         if raw is None:
             return []
+        if scale != 1.0:
+            # Back to full-frame pixels: box and the five landmark points.
+            raw = raw.copy()
+            raw[:, :14] /= scale
 
         faces: List[RawFace] = []
         for row in raw:
