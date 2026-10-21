@@ -39,6 +39,8 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 
 from computer_vision.inference.base import DetectorBackend, RawDetection
+from computer_vision.inference.batching import BatchCombiner
+from computer_vision.inference.device import resolve_torch_device
 from computer_vision.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -71,7 +73,7 @@ _IDENTITY_DEFAULTS: Dict[str, Any] = {
 }
 
 
-def _normalise(name: str, value: Any) -> Any:
+def _normalise(name: str, value: Any, backend_name: str = "") -> Any:
     """One canonical form per identity param, so ``640`` and ``"640"`` agree."""
     if value is None:
         value = _IDENTITY_DEFAULTS.get(name)
@@ -79,6 +81,10 @@ def _normalise(name: str, value: Any) -> Any:
         return None
     try:
         if name == "device":
+            if backend_name == "ultralytics":
+                # "auto", "cuda" and "0" are one device once resolved, so
+                # detectors that spell it differently still share a model.
+                return resolve_torch_device(value)
             return str(value).strip().lower()
         if name == "imgsz":
             if isinstance(value, (list, tuple)):
@@ -99,7 +105,7 @@ def share_key(backend_name: str, params: Dict[str, Any]) -> Tuple[Any, ...]:
     """Identity of a model configuration, for deciding what can be shared."""
     values: List[Any] = [backend_name]
     for name in _IDENTITY_PARAMS:
-        values.append(_normalise(name, params.get(name)))
+        values.append(_normalise(name, params.get(name), backend_name))
     return tuple(values)
 
 
@@ -112,7 +118,10 @@ class SharedDetector(DetectorBackend):
         super().__init__(inner.params)
         self._inner = inner
         self._lock = threading.Lock()
-        self._infer_lock = threading.Lock()
+        # Cameras sharing this model have their frames batched into one call.
+        self._batcher: BatchCombiner[List[RawDetection]] = BatchCombiner(
+            inner.infer_batch, max_batch=int(inner.params.get("max_batch", 8))
+        )
         self._users = 0
 
         # Memo for the frame currently in flight, one per calling thread. A
@@ -171,8 +180,7 @@ class SharedDetector(DetectorBackend):
                 self.cache_hits += 1
             return list(memo.results)
 
-        with self._infer_lock:
-            results = self._inner.infer(frame)
+        results = self._batcher.submit(frame)
 
         memo.frame = frame
         memo.results = list(results)
@@ -203,6 +211,8 @@ class SharedDetector(DetectorBackend):
             "users": self._users,
             "inferences": self.inference_count,
             "cache_hits": self.cache_hits,
+            "batches": self._batcher.batches,
+            "average_batch": round(self._batcher.average_batch, 2),
         }
 
     def __repr__(self) -> str:

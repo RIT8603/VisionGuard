@@ -118,6 +118,11 @@ class IdentityStore:
         self._identities: Dict[str, Identity] = {}
         self._lock = threading.RLock()
         self.threshold = float(threshold)
+        #: Every template as rows of one unit-length matrix, for matching a face
+        #: against all of them in one product. Rebuilt when the contents change.
+        self._cache_key: Optional[tuple] = None
+        self._matrix: Optional[np.ndarray] = None
+        self._groups: List[Tuple[str, int, int]] = []
 
     # ------------------------------------------------------------------ #
     # Contents
@@ -202,31 +207,75 @@ class IdentityStore:
     # Matching
     # ------------------------------------------------------------------ #
 
-    def match(self, embedding: np.ndarray, threshold: Optional[float] = None) -> IdentityMatch:
+    def match(
+        self,
+        embedding: np.ndarray,
+        threshold: Optional[float] = None,
+        margin: float = 0.0,
+    ) -> IdentityMatch:
         """Best identity for ``embedding``.
 
         Returns the nearest candidate along with whether it cleared the
         threshold - the caller gets the score either way, so "unknown, but it
         was close" is distinguishable from "unknown, nothing like it".
+
+        ``margin`` guards against look-alikes: when another identity scores
+        within ``margin`` of the best one, the face is ambiguous and is
+        reported as not matched rather than guessed.
         """
         cutoff = self.threshold if threshold is None else float(threshold)
         vector = np.asarray(embedding, dtype=np.float32).ravel()
 
-        best_name, best_score = "", -1.0
+        # Best sample per identity, then the best identity overall - all
+        # templates scored in one matrix product (a Python loop over 350
+        # templates cost ~3.5 ms per face; this is ~0.1 ms).
+        per_identity: Dict[str, float] = {}
         with self._lock:
-            for identity in self._identities.values():
-                for sample in identity.embeddings:
-                    if sample.size != vector.size:
-                        continue
-                    score = cosine_similarity(vector, sample)
-                    if score > best_score:
-                        best_name, best_score = identity.name, score
+            matrix, groups = self._templates()
+        norm = float(np.linalg.norm(vector))
+        if matrix is not None and norm > 0 and matrix.shape[1] == vector.size:
+            scores = matrix @ (vector / norm)
+            for name, start, end in groups:
+                per_identity[name] = float(scores[start:end].max())
 
-        if not best_name:
+        if not per_identity:
             return IdentityMatch(name="", similarity=0.0, matched=False)
-        return IdentityMatch(
-            name=best_name, similarity=best_score, matched=best_score >= cutoff
+
+        ranked = sorted(per_identity.items(), key=lambda item: item[1], reverse=True)
+        best_name, best_score = ranked[0]
+        matched = best_score >= cutoff
+        if matched and margin > 0.0 and len(ranked) > 1:
+            matched = (best_score - ranked[1][1]) >= margin
+        return IdentityMatch(name=best_name, similarity=best_score, matched=matched)
+
+    def _templates(self) -> Tuple[Optional[np.ndarray], List[Tuple[str, int, int]]]:
+        """The cached template matrix, rebuilt if the contents changed. Caller holds the lock.
+
+        The key notices every way the contents change: a template added or an
+        identity removed (counts), or the whole map swapped for a new one (id),
+        which is how the live registry is replaced.
+        """
+        key = (
+            id(self._identities),
+            len(self._identities),
+            sum(len(i.embeddings) for i in self._identities.values()),
         )
+        if key != self._cache_key:
+            rows: List[np.ndarray] = []
+            groups: List[Tuple[str, int, int]] = []
+            for identity in self._identities.values():
+                start = len(rows)
+                for sample in identity.embeddings:
+                    vec = np.asarray(sample, dtype=np.float32).ravel()
+                    n = float(np.linalg.norm(vec))
+                    rows.append(vec / n if n > 0 else vec)
+                if len(rows) > start:
+                    groups.append((identity.name, start, len(rows)))
+            sizes = {r.size for r in rows}
+            self._matrix = np.stack(rows) if rows and len(sizes) == 1 else None
+            self._groups = groups
+            self._cache_key = key
+        return self._matrix, self._groups
 
     # ------------------------------------------------------------------ #
     # Persistence

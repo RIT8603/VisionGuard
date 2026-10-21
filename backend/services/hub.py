@@ -42,10 +42,17 @@ class _Slot:
 class CameraHub:
     """Thread-safe registry of per-camera dashboard state."""
 
-    def __init__(self, max_events: int = 200, alerts: AlertCenter | None = None) -> None:
+    def __init__(
+        self,
+        max_events: int = 200,
+        alerts: AlertCenter | None = None,
+        event_log: Any = None,
+    ) -> None:
         self._max_events = max_events
         #: One alert center for every camera; each camera's state feeds it.
         self.alerts = alerts if alerts is not None else AlertCenter()
+        #: Durable log every event is appended to (``EventLog``), or None.
+        self.event_log = event_log
         self._lock = threading.Lock()
         self._slots: Dict[str, _Slot] = {}
 
@@ -62,7 +69,7 @@ class CameraHub:
                 if slot is None:
                     state = DashboardState(
                         max_events=self._max_events,
-                        on_events=partial(self.alerts.ingest, cam_id),
+                        on_events=partial(self._on_events, cam_id),
                     )
                     slot = _Slot(cam_id, name, source_type, state)
                 else:
@@ -70,6 +77,17 @@ class CameraHub:
                 slot.phase, slot.error = PHASE_STARTING, None
                 slots[cam_id] = slot
             self._slots = slots
+
+    def _on_events(self, cam_id: str, events: List[Dict[str, Any]]) -> None:
+        """Every camera's events go to the alert center and the durable log."""
+        self.alerts.ingest(cam_id, events)
+        if self.event_log is not None:
+            try:
+                self.event_log.add_many(cam_id, events)
+            except Exception:  # noqa: BLE001 - a full disk must not stop the video
+                import logging
+
+                logging.getLogger(__name__).exception("Could not write events to the log")
 
     def set_phase(self, cam_id: str, phase: str, error: str | None = None) -> None:
         with self._lock:

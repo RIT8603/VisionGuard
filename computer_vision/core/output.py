@@ -18,6 +18,7 @@ import cv2
 
 from computer_vision.core.config import ProcessingConfig
 from computer_vision.core.context import FrameContext
+from computer_vision.utils.magic_fx import MagicTrails, magic_enabled
 from computer_vision.utils.annotate import (
     COLOR_ACCENT,
     COLOR_MUTED,
@@ -29,6 +30,7 @@ from computer_vision.utils.annotate import (
     draw_hud,
     draw_overlays,
     draw_tracks,
+    track_names,
 )
 from computer_vision.utils.logger import get_logger
 from computer_vision.utils.timing import PipelineStats
@@ -117,6 +119,7 @@ class WindowSink(BaseOutputSink):
         self._source_description = source_description
         self._module_names = list(module_names)
         self._window_ready = False
+        self._fx = MagicTrails()
 
     # ---------------- lifecycle ---------------- #
 
@@ -157,11 +160,14 @@ class WindowSink(BaseOutputSink):
         if context.overlays:
             draw_overlays(frame, context.overlays)
 
+        if magic_enabled():
+            self._fx.draw(frame, context.get_tracks(), keep_clear=context.get_detections())
+
         if self._config.show_boxes:
             # Tracks first, then only the detections nobody turned into tracks,
             # so a tracked person gets one box with an id rather than two.
             draw_detections(frame, untracked_detections(context))
-            draw_tracks(frame, context.get_tracks())
+            draw_tracks(frame, context.get_tracks(), track_names(context.get_detections("face_recognition")))
 
         if self._config.show_hud:
             draw_hud(frame, self._hud_lines(context, stats))

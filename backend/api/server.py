@@ -48,7 +48,10 @@ from typing import FrozenSet, Iterable, Literal, Optional, Sequence
 from urllib.parse import parse_qs, quote, unquote
 
 from backend.services.alerts import AlertCenter
+from backend.api.faces import register_face_routes
+from backend.api.reports import register_report_routes
 from backend.services.camera_manager import CameraManager
+from backend.services.faces import FaceService
 from backend.services.hub import CameraHub
 from backend.services.reload import ReloadController
 from backend.services.settings import SettingsManager
@@ -325,6 +328,8 @@ def build_app(
     hub: CameraHub | None = None,
     cameras: CameraManager | None = None,
     settings: SettingsManager | None = None,
+    faces: FaceService | None = None,
+    snapshot_dir: str = "data/snapshots",
 ):
     """Create the FastAPI application bound to ``state``.
 
@@ -528,6 +533,25 @@ def build_app(
         reload.request(desired)
         return JSONResponse({"status": "applying", "enabled": desired}, status_code=202)
 
+    @app.get("/api/view")
+    def get_view():
+        """Cosmetic drawing options for the video, shared by every camera."""
+        from computer_vision.utils.magic_fx import magic_enabled
+
+        return JSONResponse({"magic_effect": magic_enabled()})
+
+    @app.post("/api/view", include_in_schema=False)
+    def set_view(payload: dict = Body(...)):
+        """Switch the magic effect on or off. Drawing only - analysis is untouched."""
+        from computer_vision.utils.magic_fx import magic_enabled, set_magic_enabled
+
+        value = payload.get("magic_effect")
+        if not isinstance(value, bool):
+            return JSONResponse({"error": "'magic_effect' must be true or false"}, status_code=400)
+        set_magic_enabled(value)
+        logger.info("Magic effect %s from the dashboard", "on" if value else "off")
+        return JSONResponse({"magic_effect": magic_enabled()})
+
     @app.get("/api/snapshot.jpg", include_in_schema=False)
     def snapshot(camera: Optional[str] = Query(None, max_length=64)):
         chosen = state_for(camera)
@@ -557,6 +581,9 @@ def build_app(
             _mjpeg_frames(chosen, slots, poll_interval, request=request, client_id=client),
             media_type=f"multipart/x-mixed-replace; boundary={_BOUNDARY}",
         )
+
+    register_face_routes(app, faces)
+    register_report_routes(app, hub, snapshot_dir)
 
     app.state.stream_slots = slots
     app.state.alerts = alerts
@@ -669,7 +696,11 @@ class DashboardServer:
         hub: CameraHub | None = None,
         cameras: CameraManager | None = None,
         settings: SettingsManager | None = None,
+        faces: FaceService | None = None,
+        snapshot_dir: str = "data/snapshots",
     ) -> None:
+        self._faces = faces
+        self._snapshot_dir = snapshot_dir
         self._hub = hub
         self._settings = settings
         self._cameras = cameras
@@ -733,6 +764,8 @@ class DashboardServer:
             hub=self._hub,
             cameras=self._cameras,
             settings=self._settings,
+            faces=self._faces,
+            snapshot_dir=self._snapshot_dir,
         )
         self._socket = _bind_socket(self._host, self._port)  # OSError -> caller
 

@@ -53,7 +53,8 @@ from backend.services.state import DashboardState
 from computer_vision.core.config import ProcessingConfig
 from computer_vision.core.context import BBox, FrameContext, json_safe
 from computer_vision.core.output import BaseOutputSink, untracked_detections
-from computer_vision.utils.annotate import draw_detections, draw_overlays, draw_tracks
+from computer_vision.utils.annotate import draw_detections, draw_overlays, draw_tracks, track_names
+from computer_vision.utils.magic_fx import MagicTrails, magic_enabled
 from computer_vision.utils.logger import get_logger
 from computer_vision.utils.timing import PipelineStats
 
@@ -199,6 +200,8 @@ class WebSink(BaseOutputSink):
         self._live_thread: Optional[threading.Thread] = None
         self._live_stop = threading.Event()
         self._live_published_at = 0.0
+        #: The magic effect remembers paths across frames, so one per camera.
+        self._fx = MagicTrails()
 
     # ------------------------------------------------------------------ #
     # Live view
@@ -295,9 +298,11 @@ class WebSink(BaseOutputSink):
     def _draw(self, frame: np.ndarray, results: _Results, tracks: List[Any], fresh: bool):
         if results.overlays:
             draw_overlays(frame, results.overlays)
+        if fresh and magic_enabled():
+            self._fx.draw(frame, tracks, keep_clear=results.detections)
         if self._config.show_boxes and fresh:
             draw_detections(frame, results.detections)
-            draw_tracks(frame, tracks)
+            draw_tracks(frame, tracks, track_names(results.detections))
         return self._jpeg(frame)
 
     def _synced_frame(self, frame: np.ndarray, now: float):
@@ -393,9 +398,11 @@ class WebSink(BaseOutputSink):
         frame = context.frame.copy()
         if context.overlays:
             draw_overlays(frame, context.overlays)
+        if magic_enabled():
+            self._fx.draw(frame, context.get_tracks(), keep_clear=context.get_detections())
         if self._config.show_boxes:
             draw_detections(frame, untracked_detections(context))
-            draw_tracks(frame, context.get_tracks())
+            draw_tracks(frame, context.get_tracks(), track_names(context.get_detections("face_recognition")))
         return self._jpeg(frame)
 
     def _jpeg(self, frame: np.ndarray) -> Optional[bytes]:
