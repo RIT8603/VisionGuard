@@ -1,0 +1,253 @@
+/*
+ * Help assistant: a corner button and a side panel (bottom sheet on phones).
+ * Uses the console tokens from index.css; the panel reuses .panel/.panel-head.
+ */
+
+.assistant-toggle {
+  position: fixed;
+  right: var(--gap);
+  bottom: var(--gap);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: var(--panel-head);
+  border: 2px solid var(--primary);
+  cursor: pointer;
+}
+
+.assistant-toggle span {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  color: var(--on-fill);
+  background: var(--primary);
+}
+
+.assistant-toggle:hover {
+  border-color: var(--text);
+}
+
+.assistant-toggle[aria-expanded='true'] {
+  display: none;
+}
+
+.assistant-panel {
+  position: fixed;
+  right: var(--gap);
+  bottom: var(--gap);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - 2 * var(--gap)));
+  height: min(560px, calc(100vh - 2 * var(--gap)));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+.assistant-close {
+  padding: 0 6px;
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.assistant-close:hover {
+  color: var(--text);
+}
+
+.assistant-log {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.assistant-state p {
+  margin: 0 0 12px;
+}
+
+.assistant-state-title {
+  font-weight: 700;
+  color: var(--warn);
+}
+
+.assistant-suggestions {
+  display: grid;
+  gap: 8px;
+}
+
+.assistant-suggestion {
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 2px solid var(--line-strong);
+  cursor: pointer;
+}
+
+.assistant-suggestion:hover {
+  border-color: var(--primary);
+}
+
+.assistant-msg {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--line-strong);
+}
+
+.assistant-msg-user {
+  background: var(--panel-head);
+}
+
+.assistant-msg-assistant {
+  border-left-color: var(--primary);
+}
+
+.assistant-msg-who {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.assistant-msg p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.assistant-note {
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+
+.assistant-dots::after {
+  content: '';
+  animation: assistant-dots 1.2s steps(4, end) infinite;
+}
+
+@keyframes assistant-dots {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+}
+
+.assistant-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--crit);
+  border: 2px solid var(--crit);
+}
+
+.assistant-error p {
+  margin: 0;
+}
+
+.assistant-retry {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text);
+  background: transparent;
+  border: 2px solid var(--line-strong);
+  cursor: pointer;
+}
+
+.assistant-retry:hover {
+  border-color: var(--text);
+}
+
+.assistant-form {
+  padding: 12px;
+  background: var(--panel-head);
+  border-top: var(--border);
+}
+
+.assistant-form textarea {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: #000;
+  border: 2px solid var(--line-strong);
+  border-radius: 0;
+  resize: none;
+}
+
+.assistant-form textarea:disabled {
+  opacity: 0.55;
+}
+
+.assistant-form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.assistant-count {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.assistant-form .summary-btn:disabled {
+  color: var(--muted);
+  background: transparent;
+  border-color: var(--line-strong);
+  cursor: not-allowed;
+}
+
+.assistant-toggle:focus-visible,
+.assistant-close:focus-visible,
+.assistant-suggestion:focus-visible,
+.assistant-retry:focus-visible,
+.assistant-form textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Phones: a bottom sheet across the full width. */
+@media (max-width: 719px) {
+  .assistant-panel {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    height: min(85vh, 85dvh);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-dots::after {
+    animation: none;
+    content: '...';
+  }
+}
