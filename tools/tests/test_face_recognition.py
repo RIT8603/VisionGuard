@@ -371,6 +371,12 @@ def a_store(tmp_path, **people) -> str:
 def build_recogniser(tmp_path, people=None, **params) -> FaceRecognitionModule:
     params.setdefault("backend", "fake")
     params.setdefault("identity_store", a_store(tmp_path, **(people or {})))
+    # These tests are about matching, not picture quality: the synthetic frames
+    # are flat grey, which the quality gate (tested in test_face_registry) rejects.
+    params.setdefault("min_sharpness", 0)
+    params.setdefault("min_quality", 0)
+    params.setdefault("min_face_size", 0)
+    params.setdefault("confirm_matches", 1)
     module = FaceRecognitionModule(params)
     module.initialize()
     return module
@@ -397,10 +403,14 @@ class TestFaceRecognition:
     def test_requires_face_detection(self):
         assert FaceRecognitionModule.requires == ("face_detection",)
 
-    def test_refuses_to_start_without_an_identity_store(self):
-        """Better than silently labelling everybody unknown."""
-        with pytest.raises(ModuleInitializationError, match="needs an identity store"):
-            FaceRecognitionModule({"backend": "fake"}).initialize()
+    def test_without_an_identity_store_it_uses_the_live_registry(self):
+        """No file configured = the store the dashboard's Face Registry fills."""
+        from computer_vision.identity.shared import get_shared_store
+
+        module = FaceRecognitionModule({"backend": "fake"})
+        module.initialize()
+        assert module._store is get_shared_store()
+        module.cleanup()
 
     def test_missing_store_file_is_actionable(self, tmp_path):
         with pytest.raises(ModuleInitializationError, match="Enrol identities first"):
@@ -666,6 +676,10 @@ class TestWiring:
                             "enabled": True,
                             "backend": "fake",
                             "identity_store": a_store(tmp_path, alice=vec(1)),
+                        "min_sharpness": 0,
+                        "min_quality": 0,
+                        "min_face_size": 0,
+                        "confirm_matches": 1,
                         },
                         "face_detection": {"enabled": True, "backend": "fake"},
                     }
@@ -685,6 +699,10 @@ class TestWiring:
                                 "enabled": True,
                                 "backend": "fake",
                                 "identity_store": a_store(tmp_path, alice=vec(1)),
+                        "min_sharpness": 0,
+                        "min_quality": 0,
+                        "min_face_size": 0,
+                        "confirm_matches": 1,
                             }
                         }
                     }
@@ -735,6 +753,10 @@ class TestFullChain:
                         "enabled": True,
                         "backend": "fake",
                         "identity_store": a_store(tmp_path, alice=vec(1)),
+                        "min_sharpness": 0,
+                        "min_quality": 0,
+                        "min_face_size": 0,
+                        "confirm_matches": 1,
                     },
                     "unknown_person": {"enabled": True, "min_sightings": 2},
                 },
@@ -771,6 +793,10 @@ class TestFullChain:
                         "enabled": True,
                         "backend": "fake",
                         "identity_store": a_store(tmp_path, alice=alice),
+                        "min_sharpness": 0,
+                        "min_quality": 0,
+                        "min_face_size": 0,
+                        "confirm_matches": 1,
                     },
                     "unknown_person": {"enabled": True, "min_sightings": 1},
                 },

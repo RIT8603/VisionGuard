@@ -15,7 +15,7 @@ from __future__ import annotations
 import importlib.util
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -26,6 +26,7 @@ from computer_vision.inference.base import (
     RawDetection,
     verify_model_file,
 )
+from computer_vision.inference.device import resolve_torch_device
 from computer_vision.sources.base import is_valid_frame
 from computer_vision.utils.logger import get_logger
 
@@ -109,11 +110,12 @@ class UltralyticsDetector(DetectorBackend):
         self._names: Dict[int, str] = {}
 
         self._model_ref = str(self.params.get("model", DEFAULT_MODEL))
-        self._device = str(self.params.get("device", "cpu"))
+        self._device = resolve_torch_device(self.params.get("device", "cpu"))
         self._imgsz: ImageSize = parse_imgsz(self.params.get("imgsz"))
         self._conf = float(self.params.get("model_confidence", 0.25))
         self._iou = float(self.params.get("iou", 0.45))
-        self._half = bool(self.params.get("half", False))
+        # FP16 only exists on the GPU; on a CPU fallback it is simply off.
+        self._half = bool(self.params.get("half", False)) and self._device.startswith("cuda")
         self._warmup = bool(self.params.get("warmup", True))
 
         classes = self.params.get("classes")
@@ -225,12 +227,37 @@ class UltralyticsDetector(DetectorBackend):
             # Only passed when explicitly requested: newer Ultralytics warns
             # on every call when 'half' is supplied at all, and FP16 is
             # meaningless on CPU anyway.
-            **({"half": True} if self._half else {}),
+            **({"quantize": 16} if self._half else {}),  # FP16 (the old "half" flag is deprecated)
         )
         if not results:
             return []
 
         return self._to_raw_detections(results[0])
+
+    def infer_batch(self, frames: Sequence[np.ndarray]) -> List[List[RawDetection]]:
+        """One forward pass over several cameras' frames."""
+        if not self._loaded or self._model is None:
+            raise ModelLoadError("UltralyticsDetector.infer_batch() called before load()")
+        valid = [i for i, frame in enumerate(frames) if is_valid_frame(frame)]
+        out: List[List[RawDetection]] = [[] for _ in frames]
+        if not valid:
+            return out
+        if len(valid) == 1:
+            out[valid[0]] = self.infer(frames[valid[0]])
+            return out
+        results = self._model.predict(
+            source=[frames[i] for i in valid],
+            conf=self._conf,
+            iou=self._iou,
+            imgsz=self._imgsz,
+            device=self._device,
+            classes=self._classes,
+            verbose=False,
+            **({"quantize": 16} if self._half else {}),  # FP16 (the old "half" flag is deprecated)
+        )
+        for index, result in zip(valid, results):
+            out[index] = self._to_raw_detections(result)
+        return out
 
     def _to_raw_detections(self, result: Any) -> List[RawDetection]:
         """Translate one Ultralytics ``Results`` object into RawDetections."""
