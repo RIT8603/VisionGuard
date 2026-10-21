@@ -72,6 +72,9 @@ processing:
   window_name: "VisionGuard AI"
   show_hud: true
   show_boxes: true         # draw detection boxes from every enabled detector
+  magic_effect: true       # glowing trail + sparkles tracing how each tracked
+                           # person moves; people and their boxes stay untouched
+                           # (toggle on Live Monitoring)
   hud_max_detections: 5    # cap per-detection HUD lines
   mirror: false            # flip horizontally (natural for a front-facing webcam)
   max_fps: 0               # throttle the loop; 0 = as fast as the source allows
@@ -92,6 +95,10 @@ dashboard:
                            # random one printed at startup. Plain HTTP - use a
                            # TLS reverse proxy on untrusted networks.
   port: 8080
+  # Several cameras: run each in its own process so they use all CPU cores
+  # (and keep the GPU busier) instead of sharing one Python interpreter.
+  # Costs ~1 GB of RAM per camera (each loads its own models).
+  process_per_camera: true
   stream_fps: 15.0         # caps JPEG encoding only; analysis runs full rate
   # Live view: the picture is the camera's newest frame at stream_fps, with
   # the latest results drawn on it, so slow detection no longer freezes the
@@ -158,12 +165,17 @@ modules:
     #               process (243 MB instead of 923 MB, starts in 1 s instead
     #               of 4 s), identical detections. OpenVINO exports only.
     # ultralytics = needed for .pt weights; also runs exports.
-    # Detectors share one inference only when backend, model, device and
-    # imgsz all agree - keep the four the same on every detector.
+    # Detectors share one inference only when backend, model, device, imgsz
+    # and half all agree - keep them the same on every detector. Several
+    # cameras on one shared model have their frames batched into one GPU call.
+    # device (ultralytics): auto = the NVIDIA GPU if PyTorch can see one, else
+    # the CPU. Or force it: cpu | cuda | cuda:0 | 0. A GPU that is asked for
+    # but missing falls back to the CPU with a warning.
     backend: ultralytics
     model: computer_vision/Model/detection/yolo11n.pt
     model_sha256: 0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1
-    device: cpu
+    device: auto
+    half: true             # FP16 on the GPU: faster, same detections (ignored on CPU)
     imgsz: 640
     confidence_threshold: 0.35
     candidate_threshold: 0.25
@@ -179,7 +191,8 @@ modules:
     backend: ultralytics
     model: computer_vision/Model/detection/yolo11n.pt
     model_sha256: 0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1
-    device: cpu
+    device: auto
+    half: true             # FP16 on the GPU: faster, same detections (ignored on CPU)
     imgsz: 640
     confidence_threshold: 0.4
     labels: []             # empty = every class the model knows (80 for COCO)
@@ -196,7 +209,8 @@ modules:
     backend: ultralytics
     model: computer_vision/Model/detection/yolo11n.pt
     model_sha256: 0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1
-    device: cpu
+    device: auto
+    half: true             # FP16 on the GPU: faster, same detections (ignored on CPU)
     imgsz: 640
     confidence_threshold: 0.4
     candidate_threshold: 0.25   # see person_detection
@@ -205,7 +219,7 @@ modules:
   # Counts people from person_detection. Runs no model of its own, so it is
   # effectively free - but it requires person_detection to be enabled.
   crowd_detection:
-    enabled: true
+    enabled: false
     threshold: 5           # people at or above this count = crowded
 
   # Turns crowd_detection's count into events: crowd_formed once the crowd has
@@ -268,24 +282,70 @@ modules:
   # Neither model ships with OpenCV 5 - see README "Face recognition" for the
   # two ONNX files and where they come from.
   face_detection:
-    enabled: false
+    enabled: true
     backend: yunet
-    # model: computer_vision/Model/face/face_detection_yunet_2023mar.onnx
+    model: computer_vision/Model/face/face_detection_yunet_2023mar.onnx
     confidence_threshold: 0.6
     min_face_size: 24      # ignore faces smaller than this many pixels
+    # FindFace motion gate: on a frame where under 0.2 % of pixels changed the
+    # detector is skipped and the last faces are reused (a still scene has the
+    # same faces). It still runs every max_reuse_frames. 0 = always detect.
+    motion_threshold: 0.002
+    max_reuse_frames: 10
+    # Detect on a copy shrunk to this longest side (0 = full size). Face
+    # detection runs on the CPU; 640 halves its time on a 960x540 frame (only
+    # faces under ~12 px are lost, far below the 60 px recognition needs) and
+    # recognition still crops from the full-resolution frame.
+    detect_max_side: 640
 
   face_recognition:
-    enabled: false         # requires face_detection
+    enabled: true         # requires face_detection
     backend: sface
-    # model: computer_vision/Model/face/face_recognition_sface_2021dec.onnx
-    # identity_store: computer_vision/Model/face/identities.npz
-    threshold: 0.363       # cosine similarity; SFace's documented value
+    model: computer_vision/Model/face/face_recognition_sface_2021dec.onnx
+    # No identity_store: faces are matched against the users registered in the
+    # dashboard (Face Registry page), live. Set identity_store to a .npz to use
+    # a fixed file instead.
+    threshold: 0.38        # cosine similarity needed to name a face (SFace's own
+                           # default is 0.363; a little stricter suits CCTV)
+    margin: 0.05           # best identity must beat the runner-up by this much
+    # Quality gate: a face that is small, blurred or turned is never embedded
+    # (its vector would look confident and point at the wrong person).
+    min_face_size: 60      # px, shorter side of the face box
+    max_angle: 45          # head yaw or pitch limit, degrees (FindFace default)
+    min_sharpness: 20      # Laplacian variance of the face crop
+    min_quality: 0.42      # FindFace quality score 0..1 (geometric mean of
+                           # confidence, sharpness, size and frontalness)
+    # Best snapshot: a person is recognised on their first good face, and again
+    # only when a clearly better one arrives. Enable person_tracking and the
+    # name then follows the body, so it survives the face turning away.
+    confirm_matches: 2     # agreeing matches before a name is trusted
+    embed_interval: 2      # frames between recognitions of one person
     max_faces: 10
+    # FindFace face tracker: box overlap with velocity prediction.
+    track_overlap_threshold: 0.25
+    track_miss_interval: 1.0   # seconds unseen before a face track ends
 
   unknown_person:
     enabled: false         # requires face_recognition
     min_sightings: 3       # frames before an unknown face is reported
     cooldown_seconds: 30   # quiet period after reporting
+    severity: warning
+    save_snapshots: true   # save the unknown face + full frame (Reports / Alerts)
+    snapshot_dir: data/snapshots   # PERSONAL DATA: photographs of strangers
+
+  # Basic liveness check before face_recognition: a face showing no blink and no
+  # 3D head motion for decision_seconds is flagged 'spoof' (an alert). Passive
+  # heuristics: a replayed video or a mask passes, and a real person standing
+  # perfectly still can be flagged - so it only flags by default.
+  face_liveness:
+    enabled: false         # requires face_detection
+    decision_seconds: 6    # visible this long with no blink / 3D motion -> spoof
+    min_face_size: 60
+    motion_residual: 0.06  # landmark non-rigidity that counts as 3D motion
+    motion_frames: 3
+    blink_drop: 0.7
+    moire_peak: 0          # screen/print texture cue; 0 = off (fooled by real CCTV)
+    block_spoof: false     # true = also refuse to name a flagged face (strict gate)
     severity: warning
 
   # Reads vehicle registration plates. PERSONAL DATA - off unless enabled.
@@ -375,7 +435,8 @@ modules:
     backend: ultralytics
     model: computer_vision/Model/pose/yolo11n-pose.pt
     model_sha256: 869e83fcdffdc7371fa4e34cd8e51c838cc729571d1635e5141e3075e9319dc0
-    device: cpu
+    device: auto
+    half: true             # FP16 on the GPU: faster, same detections (ignored on CPU)
     imgsz: 640
     confidence_threshold: 0.4
     keypoint_threshold: 0.3  # below this a joint counts as unseen
@@ -473,6 +534,16 @@ modules:
     direction: any           # any | in | out
     report_crossings: false  # also emit a line_crossed event per person
     severity: warning
+
+  # Entry/exit counter: a person crossing the gate line is logged as entered
+  # or exited (with their name when their face was recognised on the way).
+  # The line is shared by every camera that enables this module.
+  gate_counter:
+    enabled: false           # requires person_tracking
+    line: [[0.05, 0.70], [0.95, 0.70]]   # two points, fractions of the frame
+    inside: right            # side of the line (first -> second point) that is inside
+    name: Main gate
+    severity: info
 
   # A bag left still with nobody near it.
   abandoned_object:

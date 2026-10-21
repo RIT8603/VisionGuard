@@ -8,7 +8,7 @@ modules that produce them.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
@@ -22,6 +22,27 @@ COLOR_MUTED: BGR = (160, 160, 160)
 COLOR_PANEL: BGR = (20, 20, 20)
 
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
+
+#: Face labels: who it is matters more than the colour of a class.
+COLOR_KNOWN: BGR = (80, 200, 60)      # green - a registered person
+COLOR_UNKNOWN: BGR = (0, 140, 255)    # orange - checked, nobody registered
+COLOR_SPOOF: BGR = (60, 60, 230)      # red - liveness says photo/screen
+
+
+def _ui_scale(frame: np.ndarray) -> float:
+    """Text and line size for this frame.
+
+    Captions used a fixed 0.45 font, about 8 px tall: fine on a 640 px
+    preview, unreadable once a 960x1707 frame is shrunk to fit the dashboard.
+    Scaling with the frame keeps them the same size *as seen*.
+    """
+    short = min(frame.shape[:2])
+    return float(np.clip(short / 900.0, 0.5, 2.0))
+
+
+def _ascii(text: str) -> str:
+    """OpenCV's built-in font has ASCII only; anything else would draw as '?'."""
+    return text.encode("ascii", "replace").decode("ascii")
 
 
 def draw_panel(
@@ -135,33 +156,70 @@ def draw_box(
     color: BGR = COLOR_OK,
     thickness: int = 2,
 ) -> None:
-    """Draw one labelled bounding box in place."""
+    """Draw one labelled bounding box in place, sized for the frame."""
     x1, y1, x2, y2 = bbox
-    cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness, cv2.LINE_AA)
+    scale = _ui_scale(frame)
+    line = max(thickness, int(round(thickness * scale)))
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, line, cv2.LINE_AA)
+    if caption:
+        _draw_label(frame, caption, (x1, y1), color, scale, above=True, line=line)
 
-    if not caption:
-        return
 
-    scale = 0.45
-    (tw, th), baseline = cv2.getTextSize(caption, _FONT, scale, 1)
+def _draw_label(
+    frame: np.ndarray,
+    text: str,
+    anchor: Tuple[int, int],
+    color: BGR,
+    scale: float,
+    above: bool = True,
+    line: int = 0,
+) -> None:
+    """A solid label with bold text, kept fully inside the frame."""
+    text = _ascii(text)
+    weight = max(1, int(round(scale * 2)))
+    (tw, th), baseline = cv2.getTextSize(text, _FONT, scale, weight)
+    pad = max(3, int(round(4 * scale)))
+    h, w = frame.shape[:2]
+    box_w, box_h = tw + 2 * pad, th + baseline + 2 * pad
 
-    # Put the caption inside the box when it would fall off the top edge.
-    top = y1 - th - baseline - 4
+    x, y = anchor
+    x = int(min(max(0, x - line // 2), max(0, w - box_w)))
+    top = y - box_h if above else y
     if top < 0:
-        top = y1 + 2
-    bottom = top + th + baseline + 4
+        top = y + line  # no room above: put it just inside the box
+    top = int(min(max(0, top), max(0, h - box_h)))
 
-    cv2.rectangle(frame, (x1, top), (x1 + tw + 8, bottom), color, -1)
-    cv2.putText(
-        frame,
-        caption,
-        (x1 + 4, bottom - baseline - 2),
-        _FONT,
-        scale,
-        (15, 15, 15),
-        1,
-        cv2.LINE_AA,
-    )
+    cv2.rectangle(frame, (x, top), (x + box_w, top + box_h), color, -1)
+    # Dark text on a bright fill, light text on a dark one.
+    luminance = 0.114 * color[0] + 0.587 * color[1] + 0.299 * color[2]
+    ink = (15, 15, 15) if luminance > 110 else (245, 245, 245)
+    cv2.putText(frame, text, (x + pad, top + pad + th), _FONT, scale, ink, weight, cv2.LINE_AA)
+
+
+def track_names(detections: Iterable[Any]) -> Dict[int, str]:
+    """``person track id -> recognised name`` from this frame's face results."""
+    names: Dict[int, str] = {}
+    for det in detections:
+        extra = getattr(det, "extra", None) or {}
+        track_id = extra.get("person_track_id")
+        if track_id is not None and extra.get("recognised") and extra.get("identity"):
+            names[int(track_id)] = str(extra["identity"])
+    return names
+
+
+def _face_caption(detection: Any) -> Optional[Tuple[str, BGR]]:
+    """Caption and colour for a face_recognition result, or None for other detections."""
+    if getattr(detection, "source_module", "") != "face_recognition":
+        return None
+    extra = getattr(detection, "extra", None) or {}
+    if extra.get("recognised") and extra.get("identity"):
+        return str(extra["identity"]), COLOR_KNOWN
+    label = str(getattr(detection, "label", ""))
+    if label == "spoof":
+        return "Spoof?", COLOR_SPOOF
+    if label == "unknown":
+        return "Unknown", COLOR_UNKNOWN
+    return "Face", COLOR_MUTED
 
 
 def draw_detections(frame: np.ndarray, detections: Iterable[Any]) -> np.ndarray:
@@ -171,23 +229,37 @@ def draw_detections(frame: np.ndarray, detections: Iterable[Any]) -> np.ndarray:
     and ``.bbox``, not a dependency on any module.
     """
     for detection in detections:
-        color = color_for_label(detection.label)
-        caption = f"{detection.label} {detection.confidence:.2f}"
+        face = _face_caption(detection)
+        if face is not None:
+            # A face is about *who*: the name (or Unknown), no confidence clutter.
+            caption, color = face
+        else:
+            color = color_for_label(detection.label)
+            caption = f"{detection.label} {detection.confidence:.2f}"
         draw_box(frame, detection.bbox.as_int(), caption, color)
     return frame
 
 
-def draw_tracks(frame: np.ndarray, tracks: Iterable[Any]) -> np.ndarray:
+def draw_tracks(
+    frame: np.ndarray, tracks: Iterable[Any], names: Optional[Dict[int, str]] = None
+) -> np.ndarray:
     """Draw ``Track`` objects with their persistent id.
 
     A coasting track (not matched this frame) is drawn thinner and marked,
-    so a guess is never mistaken for an observation.
+    so a guess is never mistaken for an observation. With ``names`` (from
+    :func:`track_names`), a recognised person's box shows their name.
     """
+    names = names or {}
     for track in tracks:
         color = color_for_track_id(track.track_id, getattr(track, "source_module", ""))
         coasting = getattr(track, "time_since_update", 0) > 0
 
-        caption = f"#{track.track_id} {track.label} {track.confidence:.2f}"
+        name = names.get(track.track_id) if track.label == "person" else None
+        if name:
+            caption = f"#{track.track_id} {name}"
+            color = COLOR_KNOWN
+        else:
+            caption = f"#{track.track_id} {track.label} {track.confidence:.2f}"
         if coasting:
             caption += " ?"
 
@@ -240,14 +312,7 @@ def draw_overlays(frame: np.ndarray, overlays: Iterable[Any]) -> np.ndarray:
 
 
 def _draw_tag(frame: np.ndarray, text: str, anchor: Tuple[int, int], color: BGR) -> None:
-    scale = 0.45
-    (tw, th), baseline = cv2.getTextSize(text, _FONT, scale, 1)
-    x, y = anchor
-    top = max(0, y - th - baseline - 4)
-    cv2.rectangle(frame, (x, top), (x + tw + 8, top + th + baseline + 4), color, -1)
-    cv2.putText(
-        frame, text, (x + 4, top + th + 2), _FONT, scale, (15, 15, 15), 1, cv2.LINE_AA
-    )
+    _draw_label(frame, text, anchor, color, _ui_scale(frame), above=True)
 
 
 def draw_banner(frame: np.ndarray, text: str, color: BGR = COLOR_ACCENT) -> np.ndarray:

@@ -559,6 +559,73 @@ face data. Download both from the OpenCV Zoo and point the config at them:
 Enabling a module without its model fails at startup with the URL above, not
 with a silent zero-detections run.
 
+Fetch both in one step (once, from the project root):
+
+```bash
+.venv/Scripts/python.exe -m tools.download_face_models
+```
+
+### Face Registry (users and multi-angle enrolment)
+
+The dashboard's **Face Registry** page (`/portal/faces`) is where an admin adds
+and manages the people VisionGuard recognises:
+
+1. **Add user** — name, employee ID, role, department, notes. Names are unique.
+2. **Capture the face from several angles.** The wizard walks through *front,
+   left, right* (required) and *up, down* (optional), two shots each. With the
+   camera it watches the head pose and takes each shot itself once the person
+   faces the requested way and the picture is good; alternatively upload photos
+   and each is filed under the view it shows.
+3. **Recognition is live.** A registered user is named on the video on the next
+   frame — no restart. Enable `face_detection` and `face_recognition` on the
+   Modules page (they need no `identity_store` when the registry is used).
+
+A capture is refused, with the reason shown, unless the face is large (>= 90 px),
+sharp, evenly lit, fully in frame, alone, and in the requested pose (a full
+profile does not count as "left" or "right"). The server also refuses a face
+that does not match the user's earlier captures, or that is already registered
+under another name.
+
+**How a name is decided live** (accuracy comes from *when* the recogniser runs):
+
+1. *Quality gate* - a face that is small (< `min_face_size`), blurred
+   (`min_sharpness`), turned too far (yaw or pitch over `max_angle`, 45 deg) or
+   scores under `min_quality` (0.42) is never embedded. The score is FindFace's
+   geometric mean of confidence, sharpness, size and frontalness, so a face bad
+   on any one axis scores low; such a vector would look confident and point at the wrong
+   person. It is shown as `face`, not `unknown`, and `unknown_person` ignores it.
+2. *Subjects* - with `person_tracking` on, each face is attached to the person
+   track whose body box contains it, so the name stays with the person while
+   they turn away or the face detector loses them. Faces are also followed by a
+   FindFace-style face tracker (box overlap with velocity prediction, tracks end
+   after `track_miss_interval` seconds), so the name survives a face leaving a
+   body box or the body being picked up late.
+3. *Best snapshot* - a person is recognised on their first good face, and again
+   only when a clearly better one arrives (closer, sharper, more frontal);
+   otherwise the name is kept. No flicker, and far fewer recognitions.
+The face detector also has FindFace's *motion gate*: on a frame where almost
+nothing moved, the detector is skipped and the last faces are reused
+(`motion_threshold`, `max_reuse_frames`). These parts are ported from the
+FindFace-lite reference in `FindFace/` - which uses the same YuNet and SFace
+models, so the gain is in when and on what the models run, not the models.
+
+4. *Strict match* - similarity >= `threshold` (0.38) **and** a lead of `margin`
+   (0.05) over the runner-up identity; a name needs `confirm_matches` agreeing
+   results (one is enough for a high-quality face) and is replaced only by
+   repeated, better evidence of someone else.
+
+Users and templates live in `data/faces/faces.db` (`dashboard.face_db`) —
+**embeddings only, never images**. Treat the file as biometric data; it is
+gitignored. Set `dashboard.allow_face_edit: false` to make the registry
+read-only. Deleting a user removes all of their templates.
+
+Camera capture in the browser needs `localhost` or HTTPS; over plain HTTP on a
+network address use *Upload photos*.
+
+Endpoints: `GET /api/face/status`, `GET|POST /api/face/users`,
+`GET|PATCH|DELETE /api/face/users/{id}`, `POST /api/face/analyze`,
+`POST|DELETE /api/face/users/{id}/samples`.
+
 ### The identity store
 
 Enrolment is deliberate. Nothing is ever added by being seen.
@@ -654,6 +721,26 @@ The event carries `closest_similarity`, so "nobody like them" is
 distinguishable from "almost matched someone".
 
 ---
+
+## Several cameras: one process each
+
+With several cameras and `dashboard.process_per_camera: true`, every camera runs
+in its own worker process (source, modules, models) while the dashboard, alerts
+and Face Registry stay in the main process. One Python process can run Python
+code on only one thread at a time, so four cameras on threads used ~2.5 of 12
+cores and left the GPU mostly idle; in separate processes they use all of them.
+
+Measured on 4 cameras (RTX 5060, 12 threads): total 9.6 -> 23.6 FPS, GPU 4-8 %
+-> 14-41 %. Together with this: frames from cameras sharing one model are
+batched into a single GPU call, YOLO runs in FP16 (`half: true`), the pose
+model is shared, and face detection runs on a frame shrunk to
+`detect_max_side` (640).
+
+The cost is memory - each worker loads its own PyTorch, CUDA context and models,
+about 1-1.5 GB of RAM per camera. Turn it off if RAM is short; with a single
+camera it is never used. Worker frames, events and status flow to the main
+process over a queue; Face Registry changes and the Magic effect switch are
+pushed to every worker while it runs.
 
 ## Dashboard
 

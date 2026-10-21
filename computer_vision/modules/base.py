@@ -139,6 +139,10 @@ class BaseAIModule(ABC):
     version: ClassVar[str] = "0.1.0"
     #: Names of modules whose results this module consumes.
     requires: ClassVar[Tuple[str, ...]] = ()
+    #: Modules this one runs *after when they are enabled*, without needing
+    #: them: unlike ``requires``, a missing one is not an error. Lets a module
+    #: use another's output of the same frame when it exists.
+    run_after: ClassVar[Tuple[str, ...]] = ()
 
     @classmethod
     def required_modules(cls, params: Dict[str, Any] | None = None) -> Tuple[str, ...]:

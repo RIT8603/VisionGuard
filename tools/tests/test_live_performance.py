@@ -774,7 +774,7 @@ class TestLiveView:
         from backend.services import web_sink
 
         drawn = []
-        monkeypatch.setattr(web_sink, "draw_tracks", lambda frame, tracks: drawn.append(1))
+        monkeypatch.setattr(web_sink, "draw_tracks", lambda frame, tracks, names=None: drawn.append(1))
         monkeypatch.setattr(web_sink, "STALE_RESULTS_SEC", 0.05)
 
         state = DashboardState()

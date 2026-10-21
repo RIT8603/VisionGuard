@@ -231,7 +231,15 @@ def build_runtimes(
     Raises whatever building raises (``ModuleError``, ``NotImplementedError``,
     ``ValueError``, ``VideoSourceError``), after releasing everything already
     built, so a failed attempt leaves nothing loaded.
+
+    With ``dashboard.process_per_camera`` and several cameras, each camera is
+    built in a worker process of its own instead (see ``process_runtime``).
     """
+    if uses_processes(config, specs, hub):
+        from backend.services.process_runtime import build_process_runtimes
+
+        return build_process_runtimes(config, specs, hub)  # type: ignore[return-value]
+
     multi = len(specs) > 1
     runtimes: List[CameraRuntime] = []
     try:
@@ -253,6 +261,17 @@ def build_runtimes(
     return runtimes
 
 
+def uses_processes(config: VisionGuardConfig, specs: Sequence[CameraSpec], hub: Optional[CameraHub]) -> bool:
+    """Whether this run puts each camera in its own process."""
+    return bool(config.dashboard.process_per_camera and hub is not None and len(specs) > 1)
+
+
+def _is_process_group(runtimes: Sequence[Any]) -> bool:
+    from backend.services.process_runtime import ProcessRuntime
+
+    return bool(runtimes) and isinstance(runtimes[0], ProcessRuntime)
+
+
 def _release(modules: Sequence[BaseAIModule]) -> None:
     for module in modules:
         try:
@@ -263,6 +282,11 @@ def _release(modules: Sequence[BaseAIModule]) -> None:
 
 def cleanup_runtimes(runtimes: Sequence[CameraRuntime]) -> None:
     """Release what was built when startup stops before the pipelines run."""
+    if _is_process_group(runtimes):
+        from backend.services.process_runtime import cleanup_process_runtimes
+
+        cleanup_process_runtimes(runtimes)  # type: ignore[arg-type]
+        return
     for rt in runtimes:
         _release(rt.modules)
         try:
@@ -333,8 +357,15 @@ def run_group(
     """Run every camera until all have stopped. Returns True on Ctrl+C.
 
     One camera runs on this thread. Several run on their own threads while this
-    thread supervises them, so Ctrl+C reaches it and stops them all.
+    thread supervises them, so Ctrl+C reaches it and stops them all - or, in
+    process-per-camera mode, in their own processes while this thread relays
+    what they publish to the dashboard.
     """
+    if _is_process_group(runtimes):
+        from backend.services.process_runtime import run_process_group
+
+        return run_process_group(runtimes, limits, reload, hub)  # type: ignore[arg-type]
+
     for rt in runtimes:
         rt.failure = None
         rt.stats = None

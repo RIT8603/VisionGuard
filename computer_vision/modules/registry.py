@@ -67,6 +67,7 @@ BUILTIN_MODULES: Dict[str, str] = {
     # Identity processing. All three need model files, and the last two need
     # an identity store. Off unless explicitly enabled (Agent.md §24).
     "face_detection": "computer_vision.modules.recognition.face_detection:FaceDetectionModule",
+    "face_liveness": "computer_vision.modules.recognition.face_liveness:FaceLivenessModule",
     "face_recognition": "computer_vision.modules.recognition.face_recognition:FaceRecognitionModule",
     "unknown_person": "computer_vision.modules.recognition.unknown_person:UnknownPersonModule",
     # -- Phase 8 --
@@ -84,6 +85,7 @@ BUILTIN_MODULES: Dict[str, str] = {
     "loitering": "computer_vision.modules.analysis.loitering:LoiteringModule",
     "intrusion_detection": "computer_vision.modules.analysis.intrusion:IntrusionDetectionModule",
     "tailgating": "computer_vision.modules.analysis.tailgating:TailgatingModule",
+    "gate_counter": "computer_vision.modules.analysis.gate:GateCounterModule",
     "abandoned_object": "computer_vision.modules.analysis.abandoned_object:AbandonedObjectModule",
     "inventory_monitoring": "computer_vision.modules.analysis.inventory:InventoryMonitoringModule",
     # -- Weapons: stock COCO classes (knife, bat, scissors); guns need custom weights --
@@ -235,7 +237,13 @@ class ModuleRegistry:
             for name, module_cls in classes.items()
         }
         cls._validate_dependencies(requirements, classes)
-        ordered = cls._topological_order(requirements, enabled)
+        # Soft ordering: "after X, if X is enabled" shapes the order only.
+        ordering: Dict[str, Tuple[str, ...]] = {
+            name: requirements[name]
+            + tuple(dep for dep in module_cls.run_after if dep in classes and dep != name)
+            for name, module_cls in classes.items()
+        }
+        ordered = cls._topological_order(ordering, enabled)
 
         logger.info("Module execution order: %s", " -> ".join(ordered))
 

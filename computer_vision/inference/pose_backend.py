@@ -7,10 +7,11 @@ answer, never part of it.
 
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Tuple
+from typing import Any, ClassVar, Dict, List, Sequence, Tuple
 
 import numpy as np
 
@@ -21,6 +22,8 @@ from computer_vision.inference.base import (
     ModelLoadError,
     verify_model_file,
 )
+from computer_vision.inference.batching import BatchCombiner
+from computer_vision.inference.device import resolve_torch_device
 from computer_vision.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -66,6 +69,10 @@ class PoseBackend(ABC):
     def load(self) -> None:
         ...
 
+    def estimate_batch(self, frames: Sequence[np.ndarray]) -> List[List[RawPose]]:
+        """Poses for several frames, in order. Runtimes that can batch override it."""
+        return [self.estimate(frame) for frame in frames]
+
     @abstractmethod
     def estimate(self, frame: np.ndarray) -> List[RawPose]:
         ...
@@ -95,11 +102,12 @@ class UltralyticsPoseBackend(PoseBackend):
         super().__init__(params)
         self._model = None
         self._model_ref = str(self.params.get("model") or DEFAULT_POSE_MODEL)
-        self._device = str(self.params.get("device", "cpu"))
+        self._device = resolve_torch_device(self.params.get("device", "cpu"))
         self._imgsz = int(self.params.get("imgsz", 640))
         self._conf = float(self.params.get("model_confidence", 0.25))
         self._iou = float(self.params.get("iou", 0.45))
         self._warmup = bool(self.params.get("warmup", True))
+        self._half = bool(self.params.get("half", False)) and self._device.startswith("cuda")
 
     def load(self) -> None:
         if self._loaded:
@@ -150,10 +158,28 @@ class UltralyticsPoseBackend(PoseBackend):
             imgsz=self._imgsz,
             device=self._device,
             verbose=False,
+            **({"quantize": 16} if self._half else {}),  # FP16 (the old "half" flag is deprecated)
         )
         if not results:
             return []
         return self._to_raw_poses(results[0])
+
+    def estimate_batch(self, frames: Sequence[np.ndarray]) -> List[List[RawPose]]:
+        """One forward pass over several cameras' frames."""
+        if not self._loaded or self._model is None:
+            raise ModelLoadError("UltralyticsPoseBackend.estimate_batch() called before load()")
+        if len(frames) == 1:
+            return [self.estimate(frames[0])]
+        results = self._model.predict(
+            source=list(frames),
+            conf=self._conf,
+            iou=self._iou,
+            imgsz=self._imgsz,
+            device=self._device,
+            verbose=False,
+            **({"quantize": 16} if self._half else {}),  # FP16 (the old "half" flag is deprecated)
+        )
+        return [self._to_raw_poses(result) for result in results]
 
     def _to_raw_poses(self, result: Any) -> List[RawPose]:
         boxes = getattr(result, "boxes", None)
@@ -196,8 +222,90 @@ def available_pose_backends() -> List[str]:
     return sorted(POSE_BACKENDS)
 
 
+class SharedPoseBackend(PoseBackend):
+    """One pose model for every camera, with their frames batched together.
+
+    Each camera used to load its own copy of the pose model and run it on its
+    own thread, so the copies fought over the GPU. Cameras with the same pose
+    settings now get this wrapper around one model; reference-counted like the
+    shared detector, and dropped when the last camera releases it.
+    """
+
+    def __init__(self, inner: PoseBackend, key: Tuple[Any, ...]) -> None:
+        super().__init__(inner.params)
+        self._inner = inner
+        self._key = key
+        self._users = 0
+        self._lock = threading.Lock()
+        self._batcher: BatchCombiner[List[RawPose]] = BatchCombiner(
+            inner.estimate_batch, max_batch=int(inner.params.get("max_batch", 8))
+        )
+
+    def load(self) -> None:
+        with self._lock:
+            self._users += 1
+            if self._inner.is_loaded:
+                self._loaded = True
+                return
+        try:
+            self._inner.load()
+        except BaseException:
+            # Do not leave a broken model cached for the next camera to reuse.
+            with self._lock:
+                self._users = max(0, self._users - 1)
+                if self._users == 0:
+                    _shared_pose.pop(self._key, None)
+            raise
+        self._loaded = True
+
+    def estimate(self, frame: np.ndarray) -> List[RawPose]:
+        return self._batcher.submit(frame)
+
+    def unload(self) -> None:
+        with self._lock:
+            self._users = max(0, self._users - 1)
+            if self._users > 0:
+                return
+            _shared_pose.pop(self._key, None)
+        self._inner.unload()
+        self._loaded = False
+
+    @property
+    def description(self) -> str:
+        return f"{self._inner.description} (shared x{self._users})"
+
+
+_shared_pose: Dict[Tuple[Any, ...], SharedPoseBackend] = {}
+_shared_pose_lock = threading.Lock()
+
+
 def create_pose_backend(name: str, params: Dict[str, Any] | None = None) -> PoseBackend:
-    """Build (but do not load) a pose backend."""
+    """Build (but do not load) a pose backend.
+
+    Cameras asking for the same model and settings share one instance (opt out
+    with ``share_model: false``).
+    """
+    params = dict(params or {})
+    if params.get("share_model", True):
+        key = (
+            name,
+            str(params.get("model") or DEFAULT_POSE_MODEL),
+            resolve_torch_device(params.get("device", "cpu")),
+            int(params.get("imgsz", 640)),
+            round(float(params.get("model_confidence", 0.25)), 6),
+            round(float(params.get("iou", 0.45)), 6),
+            bool(params.get("half", False)),
+        )
+        with _shared_pose_lock:
+            shared = _shared_pose.get(key)
+            if shared is None:
+                shared = SharedPoseBackend(_build_pose_backend(name, params), key)
+                _shared_pose[key] = shared
+            return shared
+    return _build_pose_backend(name, params)
+
+
+def _build_pose_backend(name: str, params: Dict[str, Any]) -> PoseBackend:
     import importlib
 
     import_path = POSE_BACKENDS.get(name)
