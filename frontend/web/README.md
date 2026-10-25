@@ -50,6 +50,7 @@ dashboard at <http://localhost:5173/portal/dashboard>.
 | `/portal/events` | Portal | Events & Alerts: severity summary, filters and the full event log |
 | `/portal/cameras` | Portal | Set the number of cameras and fill in one form per camera; Apply restarts the backend's pipelines |
 | `/portal/modules` | Portal | Module selection (toggling a module applies it to the running backend) |
+| `/portal/faces` | Portal | Face Registry: users, multi-angle face enrolment, recognition check |
 | anything else | Public | Branded 404 (keeps the URL that was typed) |
 
 All paths are defined once in [`src/app/paths.ts`](src/app/paths.ts); link with
@@ -199,6 +200,39 @@ while the backend binds IPv4 only.
 Not used: `/api/snapshot.jpg`, and the backend's `/`, which serves the legacy
 page. Every endpoint is GET-only and unauthenticated; none can control the
 pipeline.
+
+## Face Registry
+
+`/portal/faces` manages the people VisionGuard recognises, through the
+backend's `/api/face/*` routes (see the repository README, "Face Registry").
+Calls live in [`src/api/faces.ts`](src/api/faces.ts); the response types and
+their checks in [`src/api/faceTypes.ts`](src/api/faceTypes.ts) mirror
+`backend/services/faces.py` by hand - update them together.
+
+| Endpoint | Used for |
+|---|---|
+| `GET /api/face/status` | Model readiness, poses, counts, threshold, read-only flag |
+| `GET/POST /api/face/users`, `GET/PATCH/DELETE /api/face/users/{id}` | List, add, edit (incl. active), delete users |
+| `POST /api/face/users/{id}/samples?pose=` | One capture: a named pose from the camera, `auto` for uploads |
+| `DELETE /api/face/users/{id}/samples[?pose=]` | Retake one pose, or clear all |
+| `POST /api/face/analyze` | Live guide while the camera runs (~every 0.6 s, one at a time) |
+| `POST /api/face/identify` | "Test a photo" |
+| `GET /api/face/accuracy` | "Estimate accuracy" |
+
+- **Enrolment.** Front, left and right are required, up and down optional,
+  `samples_per_pose` captures each, in any order. With the camera, a frame is
+  captured automatically once the server says it is good and the head shows a
+  view that still needs captures. Uploads are filed under the view each photo
+  shows. A refused capture shows the server's reason as-is.
+- **Camera access needs `localhost` or HTTPS.** Over plain HTTP on a network
+  address (a LAN or Tailscale IP) the browser blocks it, and the page offers
+  **Upload photos** only.
+- **Read-only** (`dashboard.allow_face_edit: false`): the list, status, photo
+  test and accuracy estimate still work; every edit is hidden.
+- **Models missing:** the page shows the `python -m tools.download_face_models`
+  command, and enrolment and photo tests stay off until both files exist.
+- Images are sent as the raw request body and never stored by the browser; the
+  backend keeps templates only.
 
 ## Help assistant
 

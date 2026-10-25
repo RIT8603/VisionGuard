@@ -28,6 +28,7 @@ export const PORTAL_NAV: readonly NavItem[] = [
   { label: 'Cameras', to: PATHS.portal.cameras },
   { label: 'Events & Alerts', to: PATHS.portal.events },
   { label: 'Modules', to: PATHS.portal.modules },
+  { label: 'Face Registry', to: PATHS.portal.faces },
   { label: 'Alerts', to: PATHS.portal.alerts },
   { label: 'Settings', to: PATHS.portal.settings },
 ];
