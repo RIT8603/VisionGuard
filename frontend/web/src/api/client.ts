@@ -91,14 +91,26 @@ export async function getJson<T>(
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/** POST a JSON body and verify the response shape. See sendJson. */
+export function postJson<T>(
+  path: string,
+  body: unknown,
+  isValid: (value: unknown) => value is T,
+  options?: RequestOptions,
+): Promise<T> {
+  return sendJson('POST', path, body, isValid, options);
+}
+
 /**
- * POST a JSON body and verify the response shape.
+ * Send a request and verify the JSON response's shape.
  *
- * The only endpoint that needs this today, `/api/modules`, answers a
- * rejected request with `{"error": "<reason>"}` rather than an empty body,
- * so a non-2xx response's message is taken from there when present.
+ * `body` is sent as JSON, or as-is when it is a Blob (an image upload);
+ * undefined sends no body. The write endpoints answer a rejected request
+ * with `{"error": "<reason>"}` rather than an empty body, so a non-2xx
+ * response's message is taken from there when present.
  */
-export async function postJson<T>(
+export async function sendJson<T>(
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body: unknown,
   isValid: (value: unknown) => value is T,
@@ -123,13 +135,22 @@ export async function postJson<T>(
   try {
     let response: Response;
     try {
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      let payload: BodyInit | undefined;
+      if (body instanceof Blob) {
+        headers['Content-Type'] = body.type || 'application/octet-stream';
+        payload = body;
+      } else if (body !== undefined) {
+        headers['Content-Type'] = 'application/json';
+        payload = JSON.stringify(body);
+      }
       response = await fetch(path, {
-        method: 'POST',
+        method,
         signal: controller.signal,
         cache: 'no-store',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(body),
+        headers,
+        body: payload,
       });
     } catch (error) {
       return fail(error, 'network', `Could not reach ${path}`);

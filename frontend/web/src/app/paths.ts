@@ -13,6 +13,7 @@ export const PATHS = {
     events: '/portal/events',
     cameras: '/portal/cameras',
     modules: '/portal/modules',
+    faces: '/portal/faces',
     alerts: '/portal/alerts',
     settings: '/portal/settings',
   },
