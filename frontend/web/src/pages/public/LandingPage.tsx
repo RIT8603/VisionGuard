@@ -55,9 +55,9 @@ const CAPABILITIES: Capability[] = [
   },
   {
     title: 'Identity (opt-in)',
-    body: 'Face recognition, attendance and unknown-person alerts. Off by default, and they need face models plus an identity store built deliberately.',
+    body: 'Face recognition, attendance and unknown-person alerts are implemented. Enroll people on the Faces page, provide the configured face models, and select the required modules per camera.',
     detail: 'face · attendance · unknown person',
-    availability: 'setup',
+    availability: 'available',
   },
 ];
 

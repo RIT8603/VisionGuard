@@ -178,7 +178,16 @@ modules:
     half: true             # FP16 on the GPU: faster, same detections (ignored on CPU)
     imgsz: 640
     confidence_threshold: 0.35
-    candidate_threshold: 0.25
+    # Boxes from model_confidence up to confidence_threshold are never shown
+    # or counted; the tracker may use one only to CONTINUE a person it is
+    # already tracking (ByteTrack's low-score stage, which uses 0.1). On real
+    # CCTV most frames where a visible, tracked person lost their box had the
+    # person scored 0.1-0.25 - below the model's old 0.25 floor.
+    # model_confidence is part of the shared-model key: keep it equal on every
+    # detector using yolo11n (object_detection, vehicle_detection) or the
+    # model is loaded and run twice.
+    model_confidence: 0.1
+    candidate_threshold: 0.1
     min_box_area: 0        # discard boxes smaller than this many pixels
 
   # Detectors configured with the same model share one load and one inference
@@ -194,11 +203,19 @@ modules:
     device: auto
     half: true             # FP16 on the GPU: faster, same detections (ignored on CPU)
     imgsz: 640
+    model_confidence: 0.1  # shared-model key, see person_detection
     confidence_threshold: 0.4
     labels: []             # empty = every class the model knows (80 for COCO)
     # People and vehicles already have their own detectors and trackers.
     # Reported here as well, each got a second box and a second track id.
-    exclude_labels: [person, car, truck, bus, motorcycle, bicycle]
+    # Animals are excluded too: nothing here uses them, and on the top-down
+    # stairs camera people walking below were reported as "dog" (27 times in
+    # 3,120 checked frames, up to 0.91 confidence; 10 of 10 checked were people).
+    # knife / scissors / baseball bat belong to weapon_detection (critical
+    # events, snapshots); reported here too they got a second box and track.
+    exclude_labels: [person, car, truck, bus, motorcycle, bicycle,
+                     bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe,
+                     knife, scissors, baseball bat]
     # Boxes of different classes on the same spot (clutter read as both
     # "suitcase" and "chair") are reduced to the more confident one. 0 = off.
     dedupe_iou: 0.7
@@ -212,6 +229,7 @@ modules:
     device: auto
     half: true             # FP16 on the GPU: faster, same detections (ignored on CPU)
     imgsz: 640
+    model_confidence: 0.1  # shared-model key, see person_detection
     confidence_threshold: 0.4
     candidate_threshold: 0.25   # see person_detection
     labels: [car, truck, bus, motorcycle, bicycle]
@@ -237,18 +255,70 @@ modules:
   # scissors only - COCO has no gun class. For firearms, point `model` at a
   # custom-trained detector and set `labels` to its class names.
   weapon_detection:
-    enabled: false
-    # backend / model / device / imgsz: same as person_detection, so they share one inference
-    backend: openvino
-    model: computer_vision/Model/detection/yolo11s_int8_openvino_model
-    model_sha256: 535501d57695171dce9244c053c4c09950b2576fda2b696950bcb76982ef9303
-    device: intel:auto
-    imgsz: [544, 960]
+    enabled: true            # knife + firearm models measured in Model/weapons/README.md
+    # backend / model / device / imgsz / half / model_confidence: identical to
+    # person_detection, so the one yolo11n inference is shared (no extra GPU
+    # work). The previous block pointed at an OpenVINO yolo11s export that is
+    # not in the repository, so the module could not start. COCO knows knife,
+    # baseball bat and scissors - no firearm: guns need a custom model (set
+    # model + labels to it; startup refuses labels the model does not have).
+    backend: ultralytics
+    model: computer_vision/Model/detection/yolo11n.pt
+    model_sha256: 0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1
+    device: auto
+    half: true
+    imgsz: 640
+    model_confidence: 0.1
     confidence_threshold: 0.4
-    labels: [knife, baseball bat, scissors]
-    min_frames: 3            # consecutive frames before the event
+    # The shared COCO model covers bats and scissors only. Knives and firearms
+    # come from the two dedicated models below - COCO found 5% of the knives
+    # in the weapon test set, the fine-tuned model 87% (see Model/weapons/README.md).
+    labels: [baseball bat, scissors]
+    models:
+      # yolo11n fine-tuned on the Sohas weapon dataset (CC BY-SA 4.0): knife,
+      # pistol and four look-alike objects. Used for knives.
+      - model: computer_vision/Model/weapons/knife_yolo11n_sohas.pt
+        model_sha256: 7ff962adc5ac96748f6d00a269cd2182dc2f3302e9dd75f7f0ce626776ac38fa
+        labels: [knife]
+        confidence_threshold: 0.6
+      # gun_dtct (YOLOv8, MIT, Hugging Face Zcket/gun_dtct): one class, "0" =
+      # gun. 0.8 keeps phones/wallets from reading as guns (3 of 131 look-alike
+      # images alarmed; 0 false alarms on our CCTV) at 93% pistol recall.
+      - model: computer_vision/Model/weapons/firearm_gun_dtct_bg1k.pt
+        model_sha256: f1b151a061cbc960b7dc3aee4aa5306d7250be05daa4960cc0bf65627e917ef8
+        labels: ["0"]
+        label_map: {"0": firearm}
+        confidence_threshold: 0.8
+      # Long guns need different weights from the pistol detector above.
+      # Search sufficiently large person regions to reduce background alarms.
+      - model: computer_vision/Model/weapons/firearm_yolo12_compatible.pt
+        model_sha256: fd223008ff0ad62217dc6c82e6a66c005b58b23ef65255a941c3130dea382cb5
+        labels: [long_gun]
+        label_map: {long_gun: firearm}
+        confidence_threshold: 0.7
+        person_crops: true
+        min_person_height: 160
+        max_person_crops: 4
+    # Extra models each run every 2nd frame (staggered, the result is
+    # reused in between) and only on frames where person detection found
+    # someone. Measured: both on every frame halved the pipeline's FPS.
+    models_interval_frames: 2
+    only_with_people: true
+    min_frames: 3            # weapon_detected once seen in 3...
+    window_frames: 5         # ...of the last 5 frames (a few missed frames do not restart it)
     cooldown_seconds: 30
     severity: critical
+    link_person: true        # name the person holding it (nearest person track; their
+                             # recognised name when face recognition knows them)
+    save_snapshots: true     # weapon crop + annotated full frame with each event (Reports)
+    snapshot_dir: data/snapshots
+    # Armed-person tracking (uses person_tracking): a weapon near the same person
+    # in min_frames of window_frames marks them ARMED - red on the video, one
+    # `armed_person` event per person (one more if face recognition names them
+    # later) - and keeps them marked while the weapon is hidden.
+    track_armed: true
+    armed_hold_seconds: 60   # stay armed this long after the weapon was last seen near them
+    armed_forget_seconds: 5  # forget a person whose track has been gone this long
 
   # --- these three need custom-trained weights ---
   # No stock COCO model contains helmet, vest, fire or smoke classes.
@@ -256,8 +326,13 @@ modules:
   # Set `labels` to match your model's own class names.
   ppe_detection:
     enabled: false
-    # model: computer_vision/Model/custom/ppe.pt
-    # labels: [helmet, vest, gloves, boots]
+    backend: ultralytics
+    model: computer_vision/Model/custom/ppe_yolov8n_construction.pt
+    model_sha256: 4d07bbd92ca30d5c12dd67ccf52b2f54f533c9ccfef534284124682ef9f56129
+    device: auto
+    half: true
+    imgsz: 640
+    labels: [Hardhat, Safety Vest, NO-Hardhat, NO-Safety Vest]
     confidence_threshold: 0.5
 
   fire_detection:
@@ -265,12 +340,42 @@ modules:
     # model: computer_vision/Model/custom/fire.pt
     # labels: [fire]
     confidence_threshold: 0.6
+    # fire_detected once fire is seen in min_frames of the last window_frames
+    # frames; tune with the model on your own cameras.
+    min_frames: 10
+    window_frames: 15
+    cooldown_seconds: 60
+    severity: critical
 
   smoke_detection:
     enabled: false
     # model: computer_vision/Model/custom/smoke.pt
     # labels: [smoke]
     confidence_threshold: 0.6
+    # smoke_detected once smoke is seen in min_frames of the last window_frames frames.
+    min_frames: 10
+    window_frames: 15
+    cooldown_seconds: 60
+    severity: warning
+
+  # PPE rule: a tracked person missing a `required` item (or wearing one of
+  # `violation_labels`, e.g. a model's "no-helmet" class) in min_frames of
+  # their last window_frames judged frames -> ppe_violation. Needs
+  # ppe_detection (custom weights) and person_tracking. Labels must be the
+  # PPE model's own class names.
+  ppe_violation:
+    enabled: false
+    # Alert on explicit missing-equipment predictions. A missed helmet/vest
+    # detection alone is not evidence that equipment is absent.
+    required: []
+    violation_labels: [NO-Hardhat, NO-Safety Vest]
+    regions: {Hardhat: head, NO-Hardhat: head, Safety Vest: torso, NO-Safety Vest: torso}
+    min_person_height: 80
+    min_frames: 10
+    window_frames: 15
+    cooldown_seconds: 120
+    severity: warning
+    zones: []
 
   # ---- Recognition ----
   # IDENTITY PROCESSING. Off unless explicitly enabled (Agent.md §24).
@@ -283,25 +388,54 @@ modules:
   # two ONNX files and where they come from.
   face_detection:
     enabled: true
-    backend: yunet
-    model: computer_vision/Model/face/face_detection_yunet_2023mar.onnx
-    confidence_threshold: 0.6
-    min_face_size: 24      # ignore faces smaller than this many pixels
+    # YOLOv8n-face (WIDER FACE, 5 landmarks) on the GPU: on real CCTV it finds
+    # far more small / blurred faces than YuNet and costs less per frame. To go
+    # back to YuNet: backend: yunet, model: ...face_detection_yunet_2023mar.onnx,
+    # confidence_threshold: 0.6, min_face_size: 24, confirm_low_confidence: false
+    # (head_crops: true adds the YuNet head-crop pass, see the options below).
+    backend: yoloface
+    model: computer_vision/Model/face/yolov8n-face.pt
+    device: auto           # GPU when there is one
+    imgsz: 960
+    confidence_threshold: 0.4
+    min_face_size: 10      # ignore faces smaller than this many pixels
+    # Weak faces (score < trusted_confidence, or smaller than trusted_min_face_size)
+    # are published only after 2 detections in a row, and never when the same
+    # spot keeps "finding a face" for more than static_seconds (a texture or
+    # the camera's clock overlay, not a person). Strong, full-size faces skip this.
+    confirm_low_confidence: true
+    trusted_confidence: 0.6
+    trusted_min_face_size: 24
+    crop_confirm_hits: 2
+    crop_static_seconds: 3
     # FindFace motion gate: on a frame where under 0.2 % of pixels changed the
     # detector is skipped and the last faces are reused (a still scene has the
     # same faces). It still runs every max_reuse_frames. 0 = always detect.
     motion_threshold: 0.002
     max_reuse_frames: 10
-    # Detect on a copy shrunk to this longest side (0 = full size). Face
-    # detection runs on the CPU; 640 halves its time on a 960x540 frame (only
-    # faces under ~12 px are lost, far below the 60 px recognition needs) and
-    # recognition still crops from the full-resolution frame.
+    # --- YuNet-only options -------------------------------------------------
+    # detect_max_side: shrink the CPU detector's input (0 = full size).
+    # head_crops: also search each person's enlarged head region (CLAHE, lower
+    # bar, plausibility checks); costs CPU time, helped YuNet on tiny faces.
     detect_max_side: 640
+    head_crops: false
+    crop_confidence_threshold: 0.4
+    crop_target_size: 256
+    crop_min_face_size: 10
+    crop_min_person_height: 40
+    crop_max_persons: 12
+    crop_clahe: true
+    crop_native_side: 128
+    crop_min_face_to_person: 0.06
+    plain_pass_interval: 4
 
   face_recognition:
     enabled: true         # requires face_detection
     backend: sface
     model: computer_vision/Model/face/face_recognition_sface_2021dec.onnx
+    # Small faces jitter: link boxes that stopped overlapping by centre
+    # distance (in face-sizes) so one face keeps one track id. 0 = IoU only.
+    track_center_gate: 0.8
     # No identity_store: faces are matched against the users registered in the
     # dashboard (Face Registry page), live. Set identity_store to a .npz to use
     # a fixed file instead.
@@ -310,7 +444,16 @@ modules:
     margin: 0.05           # best identity must beat the runner-up by this much
     # Quality gate: a face that is small, blurred or turned is never embedded
     # (its vector would look confident and point at the wrong person).
-    min_face_size: 60      # px, shorter side of the face box
+    # CCTV faces are mostly 20-60 px. They are compared from min_face_size,
+    # but a face under small_face_size is matched by the AVERAGE of its last
+    # few embeddings (at least small_face_confirm), with a wider margin, and
+    # must agree twice in a row: one lucky match with a stranger is not enough.
+    # Recognition embeds from the full-resolution frame when it was downscaled.
+    min_face_size: 20      # px in the processing frame, shorter side of the face box
+    small_face_size: 60
+    small_face_threshold: 0     # 0 = use threshold
+    small_face_confirm: 3
+    small_face_margin: 0.08     # the averaged match must beat the runner-up by this
     max_angle: 45          # head yaw or pitch limit, degrees (FindFace default)
     min_sharpness: 20      # Laplacian variance of the face crop
     min_quality: 0.42      # FindFace quality score 0..1 (geometric mean of
@@ -318,7 +461,16 @@ modules:
     # Best snapshot: a person is recognised on their first good face, and again
     # only when a clearly better one arrives. Enable person_tracking and the
     # name then follows the body, so it survives the face turning away.
-    confirm_matches: 2     # agreeing matches before a name is trusted
+    confirm_matches: 2     # agreeing matches before a name is shown - and the
+                           # number of disagreeing checks in a row that withdraw it
+    revalidate_seconds: 3  # a confirmed name is checked again this often while the face is visible
+    # A name also stays on the person's body box while the face is turned away,
+    # as long as that body track is reliable. If it overlapped another person
+    # (box IoU >= body_overlap_iou) or was lost for longer than
+    # body_gap_reverify_seconds, the name is held back ("Checking...") until
+    # the face is seen and matches again.
+    body_overlap_iou: 0.3
+    body_gap_reverify_seconds: 0.5
     embed_interval: 2      # frames between recognitions of one person
     max_faces: 10
     # FindFace face tracker: box overlap with velocity prediction.
@@ -339,6 +491,7 @@ modules:
   # perfectly still can be flagged - so it only flags by default.
   face_liveness:
     enabled: false         # requires face_detection
+    track_center_gate: 0.8
     decision_seconds: 6    # visible this long with no blink / 3D motion -> spoof
     min_face_size: 60
     motion_residual: 0.06  # landmark non-rigidity that counts as 3D motion
@@ -405,6 +558,9 @@ modules:
     # Number a track only once it is confirmed, so ids count people that
     # were reported, not every flicker (ids used to run into the thousands).
     compact_ids: true
+    # A person the detector misses for a moment stays drawn (thin, "?") for
+    # this long. Drawing only: counting, zones and re-id never see it.
+    display_coasting_seconds: 0.5
 
   # Trackers run no model, so they cost ~0.02 ms. Each requires its detector.
   object_tracking:

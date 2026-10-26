@@ -53,7 +53,7 @@ from backend.services.state import DashboardState
 from computer_vision.core.config import ProcessingConfig
 from computer_vision.core.context import BBox, FrameContext, json_safe
 from computer_vision.core.output import BaseOutputSink, untracked_detections
-from computer_vision.utils.annotate import draw_detections, draw_overlays, draw_tracks, track_names
+from computer_vision.utils.annotate import draw_detections, draw_overlays, draw_tracks, track_names, tracks_to_draw
 from computer_vision.utils.magic_fx import MagicTrails, magic_enabled
 from computer_vision.utils.logger import get_logger
 from computer_vision.utils.timing import PipelineStats
@@ -402,7 +402,7 @@ class WebSink(BaseOutputSink):
             self._fx.draw(frame, context.get_tracks(), keep_clear=context.get_detections())
         if self._config.show_boxes:
             draw_detections(frame, untracked_detections(context))
-            draw_tracks(frame, context.get_tracks(), track_names(context.get_detections("face_recognition")))
+            draw_tracks(frame, tracks_to_draw(context), track_names(context.get_detections("face_recognition")))
         return self._jpeg(frame)
 
     def _jpeg(self, frame: np.ndarray) -> Optional[bytes]:

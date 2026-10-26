@@ -124,7 +124,10 @@ class TestRegistration:
     def test_shipped_config_lists_them_all_disabled(self):
         config = load_config("configs/config.yaml", use_env=False)
         assert NEW_MODULES <= set(config.modules)
-        assert not (NEW_MODULES & set(config.enabled_module_names()))
+        # weapon_detection ships enabled: dedicated knife/firearm models, measured
+        # in computer_vision/Model/weapons/README.md. The rest stay opt-in.
+        assert not ((NEW_MODULES - {"weapon_detection"}) & set(config.enabled_module_names()))
+        assert "weapon_detection" in config.enabled_module_names()
 
     def test_low_light_is_listed_before_every_detector(self):
         # Its brightened frame only helps modules that run after it, and the

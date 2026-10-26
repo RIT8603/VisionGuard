@@ -6,6 +6,8 @@ import { AlertsPage } from '../pages/portal/AlertsPage';
 import { CamerasPage } from '../pages/portal/CamerasPage';
 import { DashboardPage } from '../pages/portal/DashboardPage';
 import { EventsPage } from '../pages/portal/EventsPage';
+import { FacesPage } from '../pages/portal/FacesPage';
+import { ReportsPage } from '../pages/portal/ReportsPage';
 import { LiveMonitoringPage } from '../pages/portal/LiveMonitoringPage';
 import { ModulesPage } from '../pages/portal/ModulesPage';
 import { SettingsPage } from '../pages/portal/SettingsPage';
@@ -38,6 +40,8 @@ export function AppRoutes() {
         <Route path={PATHS.portal.events} element={<EventsPage />} />
         <Route path={PATHS.portal.modules} element={<ModulesPage />} />
         <Route path={PATHS.portal.alerts} element={<AlertsPage />} />
+        <Route path={PATHS.portal.faces} element={<FacesPage />} />
+        <Route path={PATHS.portal.reports} element={<ReportsPage />} />
         <Route path={PATHS.portal.settings} element={<SettingsPage />} />
       </Route>
       {/* No portal catch-all: unknown /portal/* URLs fall through to the public

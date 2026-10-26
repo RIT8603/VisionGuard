@@ -22,7 +22,9 @@ export default defineConfig({
 
   server: {
     host: '0.0.0.0',
-    allowedHosts: ['desktop-ikehftb.taile5cc80.ts.net'],
+    // A leading dot allows the domain and every subdomain: a Cloudflare quick
+    // tunnel gets a new random name each time it starts.
+    allowedHosts: ['desktop-ikehftb.taile5cc80.ts.net', '.trycloudflare.com'],
     proxy,
   },
 

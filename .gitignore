@@ -55,3 +55,10 @@ data/videos/
 .vg-testcopy.tgz
 Claude outputs/
 Step up of Project for all requied command.txt
+
+# Test & Benchmark runs
+runs/
+
+# Large sample videos
+FindFace/samples/*.mp4
+!FindFace/samples/demo.mp4
