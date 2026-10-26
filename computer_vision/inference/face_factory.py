@@ -13,6 +13,7 @@ from computer_vision.inference.face_base import BackendError, FaceDetectorBacken
 
 FACE_DETECTORS: Dict[str, str] = {
     "yunet": "computer_vision.inference.opencv_face:YuNetFaceDetector",
+    "yoloface": "computer_vision.inference.yolo_face:YoloFaceDetector",
 }
 
 FACE_EMBEDDERS: Dict[str, str] = {

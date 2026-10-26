@@ -1,5 +1,6 @@
 import { FrameResults } from '../../components/pipeline/FrameResults';
 import { LiveStream } from '../../components/pipeline/LiveStream';
+import { MagicToggle } from '../../components/pipeline/MagicToggle';
 import { ModulesPanel } from '../../components/pipeline/ModulesPanel';
 import { StatsPanel } from '../../components/pipeline/StatsPanel';
 import { StatusPanel } from '../../components/pipeline/StatusPanel';
@@ -26,6 +27,7 @@ export function LiveMonitoringPage() {
             The annotated camera feed with every detection and track in the current frame.
             Boxes and track IDs are drawn into the video by the backend.
           </p>
+          <MagicToggle />
         </header>
 
         {/* Same grid as the dashboard; DOM order is the mobile reading order. */}

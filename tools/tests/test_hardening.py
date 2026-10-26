@@ -247,6 +247,74 @@ class TestH3Token:
         assert build_config({"dashboard": {"auth_token": ""}}).dashboard.auth_token is None
 
 
+class TestH3CrossSiteWrites:
+    """A page on another site must not change anything (CSRF).
+
+    On localhost there is no token, so a "simple" POST from any web page the
+    operator visits would otherwise reach the dashboard without a preflight.
+    """
+
+    WRITE = "/api/alerts/ack"  # no body needed, answers 200 when allowed
+
+    def _client(self, policy: AccessPolicy | None = None, base="http://127.0.0.1:8080"):
+        return TestClient(build_app(DashboardState(), policy=policy), base_url=base)
+
+    def test_cross_site_fetch_metadata_is_refused(self):
+        response = self._client().post(self.WRITE, headers={"sec-fetch-site": "cross-site"})
+        assert response.status_code == 403
+
+    @pytest.mark.parametrize("site", ["same-origin", "same-site", "none"])
+    def test_own_pages_and_direct_navigation_are_allowed(self, site):
+        response = self._client().post(self.WRITE, headers={"sec-fetch-site": site})
+        assert response.status_code == 200
+
+    def test_fetch_metadata_wins_over_a_rewritten_host(self):
+        """Behind the Vite proxy or a tunnel the Origin no longer matches Host."""
+        response = self._client().post(
+            self.WRITE,
+            headers={"sec-fetch-site": "same-origin", "origin": "https://abc.trycloudflare.com"},
+        )
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize("origin", ["https://evil.example", "http://attacker.test:8080", "null", "garbage"])
+    def test_foreign_origin_is_refused_without_fetch_metadata(self, origin):
+        assert self._client().post(self.WRITE, headers={"origin": origin}).status_code == 403
+
+    @pytest.mark.parametrize("origin", ["http://127.0.0.1:8080", "http://localhost:5173", "http://[::1]:8080"])
+    def test_own_origin_is_allowed_without_fetch_metadata(self, origin):
+        assert self._client().post(self.WRITE, headers={"origin": origin}).status_code == 200
+
+    def test_origin_matching_host_on_a_wildcard_bind(self):
+        policy = AccessPolicy.for_bind("0.0.0.0", token=TOKEN)
+        client = self._client(policy, base="http://10.0.0.8:8080")
+        auth = {"authorization": f"Bearer {TOKEN}"}
+        assert client.post(self.WRITE, headers={**auth, "origin": "http://10.0.0.8:8080"}).status_code == 200
+        assert client.post(self.WRITE, headers={**auth, "origin": "http://evil.example"}).status_code == 403
+
+    def test_requests_without_browser_headers_are_allowed(self):
+        """curl, scripts and tests send neither header."""
+        assert self._client().post(self.WRITE).status_code == 200
+
+    def test_reads_are_not_affected(self):
+        client = self._client()
+        headers = {"sec-fetch-site": "cross-site", "origin": "https://evil.example"}
+        assert client.get("/api/status", headers=headers).status_code == 200
+
+    @pytest.mark.parametrize("method", ["post", "patch", "delete", "put"])
+    def test_every_write_method_is_checked(self, method):
+        response = self._client().request(
+            method.upper(), "/api/face/users/1", headers={"sec-fetch-site": "cross-site"}
+        )
+        assert response.status_code == 403
+
+    def test_raw_body_upload_is_refused_cross_site(self):
+        """Uploads read the raw body, so a no-cors fetch would otherwise get through."""
+        response = self._client().post(
+            "/api/videos?name=x.mp4", content=b"\x00" * 64, headers={"sec-fetch-site": "cross-site"}
+        )
+        assert response.status_code == 403
+
+
 # --------------------------------------------------------------------------- #
 # M4 - a busy port must reach the caller
 # --------------------------------------------------------------------------- #

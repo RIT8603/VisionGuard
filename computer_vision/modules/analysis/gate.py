@@ -102,6 +102,14 @@ class GateCounterModule(BaseAIModule):
             identity = det.extra.get("identity")
             if track_id is not None and identity:
                 self._names[int(track_id)] = (str(identity), now)
+        # face_recognition's current view of each person, face visible or not:
+        # a name it carries on the body is kept fresh, and one it withdrew or
+        # is re-verifying is not used for a crossing.
+        for track_id, entry in (context.metadata.get("person_identities") or {}).items():
+            if entry.get("name"):
+                self._names[int(track_id)] = (str(entry["name"]), now)
+            else:
+                self._names.pop(int(track_id), None)
         # Forget names of people long gone, so the map cannot grow forever.
         for track_id in [t for t, (_, seen) in self._names.items() if now - seen > 120.0]:
             del self._names[track_id]

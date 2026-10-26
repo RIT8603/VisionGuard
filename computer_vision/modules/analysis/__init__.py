@@ -18,7 +18,7 @@ Planned contents (see ROADMAP.md, Phase 9):
     abandoned_object.py -> AbandonedObjectModule (implemented)
     inventory.py      -> InventoryMonitoringModule (implemented)
     low_light.py      -> LowLightModule         (implemented)
-    ppe_violation.py  -> PPEViolationModule     (needs ppe_detection weights)
+    ppe_violation.py  -> PPEViolationModule     (implemented; needs ppe_detection weights)
     attendance.py     -> AttendanceModule       (needs Phase 7 recognition)
     unknown_person.py -> UnknownPersonAlert     (needs Phase 7 recognition)
 """

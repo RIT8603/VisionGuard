@@ -814,3 +814,91 @@ class TestFullChain:
 
         assert [e for c in sink.contexts for e in c.events] == []
         assert sink.contexts[-1].get_detections("face_recognition")[0].label == "alice"
+
+
+# --------------------------------------------------------------------------- #
+# Small CCTV faces
+# --------------------------------------------------------------------------- #
+
+def a_small_face(x1=100) -> RawFace:
+    return RawFace(
+        confidence=0.9,
+        xyxy=(x1, 50, x1 + 30, 85),        # 30 px: below small_face_size
+        landmarks=np.zeros((5, 2), dtype=np.float32),
+        raw_row=np.zeros(15, dtype=np.float32),
+    )
+
+
+def _unit(v):
+    return v / np.linalg.norm(v)
+
+
+def _run_frames(module, views, face=None):
+    """Feed one small face for len(views) frames, each with its own embedding."""
+    labels = []
+    for n, view in enumerate(views):
+        FakeFaceEmbedder.by_x = {100: view}
+        ctx = ctx_with_faces(face or a_small_face())
+        ctx.frame_id, ctx.monotonic_ts = n + 1, n * 0.04
+        module.process(ctx)
+        labels.append(ctx.get_detections("face_recognition")[0].label)
+    return labels
+
+
+class TestSmallFaces:
+    def test_a_small_face_is_named_from_several_noisy_views_not_from_one(self, tmp_path):
+        alice, rng = _unit(vec(1)), np.random.default_rng(7)
+        # Each view alone is weak (~0.5 to alice); their average is clear.
+        views = [_unit(alice + 1.1 * _unit(rng.standard_normal(DIM).astype(np.float32))) for _ in range(6)]
+        module = build_recogniser(tmp_path, people={"alice": alice, "bob": vec(2)}, embed_interval=1)
+        labels = _run_frames(module, views)
+        assert labels[0] != "alice" and labels[1] != "alice"   # not on one or two views
+        assert labels[-1] == "alice"
+
+    def test_one_lucky_match_on_a_small_face_does_not_name_a_stranger(self, tmp_path):
+        alice = _unit(vec(1))
+        lucky = _unit(alice + 1.5 * _unit(vec(77)))                  # ~0.55 to alice: a chance match
+        views = [lucky] + [_unit(vec(100 + i)) for i in range(7)]   # then plainly someone else
+        module = build_recogniser(tmp_path, people={"alice": alice, "bob": vec(2)}, embed_interval=1)
+        assert "alice" not in _run_frames(module, views)
+
+    def test_a_full_size_face_is_still_named_at_once(self, tmp_path):
+        alice = vec(1)
+        FakeFaceEmbedder.by_x = {100: alice}
+        module = build_recogniser(tmp_path, people={"alice": alice})
+        ctx = ctx_with_faces(a_face(100))
+        module.process(ctx)
+        assert ctx.get_detections("face_recognition")[0].label == "alice"
+
+    def test_recognition_embeds_from_the_full_resolution_frame(self, tmp_path, monkeypatch):
+        seen = []
+
+        def spy(self, frame, face):
+            seen.append((frame.shape[1], face.xyxy, None if face.raw_row is None else face.raw_row[:4].tolist()))
+            return vec(1)
+
+        monkeypatch.setattr(FakeFaceEmbedder, "embed", spy)
+        module = build_recogniser(tmp_path, people={"alice": vec(1)})
+        face = a_face(100)
+        face = RawFace(face.confidence, face.xyxy, face.landmarks,
+                       np.array([100, 50, 60, 70] + [0] * 11, dtype=np.float32))
+        ctx = ctx_with_faces(face)
+        ctx.original_frame = np.zeros((960, 1280, 3), dtype=np.uint8)   # 2x the 640x480 frame
+        module.process(ctx)
+        width, xyxy, row = seen[0]
+        assert width == 1280
+        assert xyxy == (200, 100, 320, 240)
+        assert row == [200, 100, 120, 140]
+
+
+def test_each_face_state_has_its_own_caption():
+    from computer_vision.utils.annotate import _face_caption
+
+    def det(label, state, verified):
+        return Detection(label=label, confidence=0.9, bbox=BBox(0, 0, 10, 10),
+                         source_module="face_recognition",
+                         extra={"recognised": False, "verified": verified, "identity": None, "state": state})
+
+    assert _face_caption(det("unknown", "unknown", True))[0] == "Unknown"
+    assert _face_caption(det("checking", "checking", False))[0] == "Checking..."
+    assert _face_caption(det("face", "unclear", False))[0] == "Face unclear"

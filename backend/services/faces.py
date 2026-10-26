@@ -71,7 +71,6 @@ MIN_FACE_PX = 90          # shorter side of the face box
 MIN_DET_SCORE = 0.80
 MIN_SHARPNESS = 25.0      # variance of the Laplacian over the 112px face crop
 BRIGHTNESS_RANGE = (45.0, 215.0)
-MULTI_FACE_RATIO = 0.45   # a second face this fraction of the first's area = ambiguous
 
 # ---- pose, from the five landmarks ---------------------------------------- #
 # yaw   = (nose.x - eye-midpoint.x) / eye distance. Positive = nose towards the
@@ -92,7 +91,13 @@ PITCH_SIDE_TOLERANCE = 0.30   # up/down only counts while the head is not also t
 # ---- identity integrity --------------------------------------------------- #
 #: A new template must resemble the user's existing ones at least this much,
 #: or it is probably a different person.
-SAME_PERSON_FLOOR = 0.20
+#: Measured on the 193 registered templates: a genuine capture never scored
+#: below 0.48 against its own user's other captures, while a different
+#: person's capture cleared the old 0.20 floor 76% of the time (0.45: 3.5%).
+SAME_PERSON_FLOOR = 0.45
+#: A first capture this similar to someone already registered is that person
+#: again (measured: same person twice 0.80, look-alike strangers up to ~0.52).
+DUPLICATE_SIMILARITY = 0.60
 
 
 class FaceServiceError(FaceDbError):
@@ -245,6 +250,12 @@ class FaceService:
         det = modules.get("face_detection")
         rec = modules.get("face_recognition")
         det_params = dict(det.params) if det is not None else {}
+        if str(det_params.get("backend", "yunet")) != "yunet":
+            # Enrolment always uses YuNet: the pose and quality gates above
+            # were measured on its landmarks. A different live detector
+            # (e.g. yoloface) does not change that, and its model file is
+            # not a YuNet model.
+            det_params = {"model": DEFAULT_DETECTOR_MODEL}
         rec_params = dict(rec.params) if rec is not None else {}
         return cls(
             FaceDatabase(config.dashboard.face_db),
@@ -406,13 +417,12 @@ class FaceService:
         main = faces[0]
         x1, y1, x2, y2 = main.xyxy
         face_w, face_h = x2 - x1, y2 - y1
-        area = face_w * face_h
 
         problems: List[str] = []
         if len(faces) > 1:
-            second = (faces[1].xyxy[2] - faces[1].xyxy[0]) * (faces[1].xyxy[3] - faces[1].xyxy[1])
-            if second >= area * MULTI_FACE_RATIO:
-                problems.append("More than one face is visible - only one person at a time")
+            # Strictly one face. Picking the largest let a second person in the
+            # shot (or a photo held up beside the face) be enrolled instead.
+            problems.append("More than one face is visible - only one person at a time")
 
         size = float(min(face_w, face_h))
         if size < MIN_FACE_PX:
@@ -520,6 +530,7 @@ class FaceService:
         the same face under two names.
         """
         own = [vec for _, vec in self.db.samples_of(user.id)]
+        best_own = -1.0
         if own:
             best_own = max(cosine_similarity(embedding, vec) for vec in own)
             if best_own < SAME_PERSON_FLOOR:
@@ -529,13 +540,25 @@ class FaceService:
                     409,
                 )
 
+        # Once the user has captures of their own, a capture is someone else's
+        # only if it is closer to that person than to this user. Comparing with
+        # the threshold alone rejected genuine captures as more people (and
+        # their side views) were enrolled: with dozens of templates each, some
+        # stranger's template crosses 0.38 by chance.
+        # A user's first capture has nothing of their own to compare with, so
+        # it must look like a duplicate (DUPLICATE_SIMILARITY), not merely a
+        # bit like someone: similar-looking people reach 0.5, the same person
+        # registered twice scores well above that.
+        bar = self.threshold if own else max(self.threshold, DUPLICATE_SIMILARITY)
+        best_name, best_other = "", -1.0
         for other_name, vectors in self.db.active_identities():
-            if other_name.lower() == user.name.lower():
+            if other_name.lower() == user.name.lower() or not vectors:
                 continue
-            if any(cosine_similarity(embedding, vec) >= self.threshold for vec in vectors):
-                raise FaceServiceError(
-                    f"This face is already registered as '{other_name}'.", 409
-                )
+            score = max(cosine_similarity(embedding, vec) for vec in vectors)
+            if score > best_other:
+                best_name, best_other = other_name, score
+        if best_other >= bar and best_other > best_own:
+            raise FaceServiceError(f"This face is already registered as '{best_name}'.", 409)
 
     # ------------------------------------------------------------------ #
     # Testing recognition

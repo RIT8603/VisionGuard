@@ -27,6 +27,8 @@ _FONT = cv2.FONT_HERSHEY_SIMPLEX
 COLOR_KNOWN: BGR = (80, 200, 60)      # green - a registered person
 COLOR_UNKNOWN: BGR = (0, 140, 255)    # orange - checked, nobody registered
 COLOR_SPOOF: BGR = (60, 60, 230)      # red - liveness says photo/screen
+COLOR_CHECKING: BGR = (0, 215, 235)   # yellow - a name is being confirmed
+COLOR_ARMED: BGR = (40, 40, 240)      # red - weapon_detection marked this person armed
 
 
 def _ui_scale(frame: np.ndarray) -> float:
@@ -217,9 +219,14 @@ def _face_caption(detection: Any) -> Optional[Tuple[str, BGR]]:
     label = str(getattr(detection, "label", ""))
     if label == "spoof":
         return "Spoof?", COLOR_SPOOF
-    if label == "unknown":
+    # Three different situations, three different captions: "Unknown" is a
+    # finding (compared, matches nobody registered); the other two are not.
+    state = extra.get("state") or ("unknown" if label == "unknown" else "unclear")
+    if state == "unknown":
         return "Unknown", COLOR_UNKNOWN
-    return "Face", COLOR_MUTED
+    if state == "checking":
+        return "Checking...", COLOR_CHECKING
+    return "Face unclear", COLOR_MUTED
 
 
 def draw_detections(frame: np.ndarray, detections: Iterable[Any]) -> np.ndarray:
@@ -234,7 +241,9 @@ def draw_detections(frame: np.ndarray, detections: Iterable[Any]) -> np.ndarray:
             # A face is about *who*: the name (or Unknown), no confidence clutter.
             caption, color = face
         else:
-            color = color_for_label(detection.label)
+            # A weapon is always drawn in alarm red, never in a palette colour.
+            weapon = getattr(detection, "source_module", "") == "weapon_detection"
+            color = COLOR_SPOOF if weapon else color_for_label(detection.label)
             caption = f"{detection.label} {detection.confidence:.2f}"
         draw_box(frame, detection.bbox.as_int(), caption, color)
     return frame
@@ -247,15 +256,27 @@ def draw_tracks(
 
     A coasting track (not matched this frame) is drawn thinner and marked,
     so a guess is never mistaken for an observation. With ``names`` (from
-    :func:`track_names`), a recognised person's box shows their name.
+    :func:`track_names`), a recognised person's box shows their name. A
+    person weapon_detection marked armed is drawn thick and red, with the
+    weapon, whether or not it is visible right now.
     """
     names = names or {}
     for track in tracks:
         color = color_for_track_id(track.track_id, getattr(track, "source_module", ""))
         coasting = getattr(track, "time_since_update", 0) > 0
+        extra = getattr(track, "extra", None) or {}
 
-        name = names.get(track.track_id) if track.label == "person" else None
-        if name:
+        name = None
+        if track.label == "person":
+            # This frame's face match, else the name the body carries while the
+            # face is turned away (face_recognition keeps it on reliable tracks).
+            name = names.get(track.track_id) or extra.get("identity")
+        armed = track.label == "person" and bool(extra.get("armed"))
+        if armed:
+            weapon = extra.get("weapon") or "weapon"
+            caption = f"#{track.track_id} {name + ' - ' if name else ''}ARMED ({weapon})"
+            color = COLOR_ARMED
+        elif name:
             caption = f"#{track.track_id} {name}"
             color = COLOR_KNOWN
         else:
@@ -268,9 +289,19 @@ def draw_tracks(
             track.bbox.as_int(),
             caption,
             color,
-            thickness=1 if coasting else 2,
+            thickness=1 if coasting else (3 if armed else 2),
         )
     return frame
+
+
+def tracks_to_draw(context: Any) -> List[Any]:
+    """This frame's tracks plus briefly-missed ones kept on screen for continuity.
+
+    The extra ones (``display_coasting_seconds`` on a tracking module) carry
+    ``time_since_update > 0``, so :func:`draw_tracks` draws them thin and
+    marked; nothing but drawing ever sees them.
+    """
+    return list(context.get_tracks()) + list(context.metadata.get("display_coasting_tracks", ()))
 
 
 def draw_overlays(frame: np.ndarray, overlays: Iterable[Any]) -> np.ndarray:

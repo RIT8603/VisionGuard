@@ -159,3 +159,82 @@ export async function postJson<T>(
     signal?.removeEventListener('abort', cancel);
   }
 }
+
+/**
+ * Send any method with either a JSON body or a raw binary body (an image).
+ *
+ * `postJson` covers the common case; this exists for PATCH/DELETE and for
+ * sending a camera frame as `image/jpeg`. A rejected request answers
+ * `{"error": "<reason>"}`, which becomes the ApiError's message.
+ */
+export async function sendRequest<T>(
+  method: 'POST' | 'PATCH' | 'DELETE',
+  path: string,
+  body: { json: unknown } | { blob: Blob } | null,
+  isValid: (value: unknown) => value is T,
+  { signal, timeoutMs = REQUEST_TIMEOUT_MS }: RequestOptions = {},
+): Promise<T> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const cancel = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  signal?.addEventListener('abort', cancel, { once: true });
+
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  let payload: BodyInit | undefined;
+  if (body !== null && 'json' in body) {
+    headers['Content-Type'] = 'application/json';
+    payload = JSON.stringify(body.json);
+  } else if (body !== null) {
+    headers['Content-Type'] = body.blob.type || 'application/octet-stream';
+    payload = body.blob;
+  }
+
+  const fail = (error: unknown, kind: ApiErrorKind, message: string): never => {
+    if (signal?.aborted) throw error;
+    if (timedOut) throw new ApiError('timeout', `No response from ${path} within ${timeoutMs} ms`);
+    throw new ApiError(kind, message);
+  };
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(path, {
+        method,
+        signal: controller.signal,
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers,
+        body: payload,
+      });
+    } catch (error) {
+      return fail(error, 'network', `Could not reach ${path}`);
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = await response.json();
+    } catch (error) {
+      if (!response.ok) {
+        throw new ApiError('http', `${path} returned HTTP ${response.status}`, response.status);
+      }
+      return fail(error, 'parse', `${path} returned a body that is not JSON`);
+    }
+
+    if (!response.ok) {
+      const detail = isPlainObject(parsed) && typeof parsed.error === 'string' ? parsed.error : undefined;
+      throw new ApiError('http', detail ?? `${path} returned HTTP ${response.status}`, response.status);
+    }
+    if (!isValid(parsed)) {
+      throw new ApiError('shape', `${path} returned an unexpected response shape`);
+    }
+    return parsed;
+  } finally {
+    window.clearTimeout(timer);
+    signal?.removeEventListener('abort', cancel);
+  }
+}

@@ -6,6 +6,11 @@
  */
 
 import type {
+  AddFaceSampleResponse,
+  FaceReading,
+  FaceStatus,
+  FaceUser,
+  FaceUsersResponse,
   SetSettingsResponse,
   SettingsResponse,
   AckAllResponse,
@@ -160,4 +165,52 @@ export function isUploadedVideo(value: unknown): value is UploadedVideo {
 
 export function isVideosResponse(value: unknown): value is VideosResponse {
   return isObject(value) && Array.isArray(value.videos) && value.videos.every(isUploadedVideo);
+}
+
+// ---------- face registry ----------
+
+export function isFaceStatus(value: unknown): value is FaceStatus {
+  return (
+    isObject(value) &&
+    typeof value.editable === 'boolean' &&
+    isObject(value.models) &&
+    typeof value.models.ready === 'boolean' &&
+    Array.isArray(value.poses) &&
+    typeof value.samples_per_pose === 'number' &&
+    typeof value.users === 'number'
+  );
+}
+
+export function isFaceUser(value: unknown): value is FaceUser {
+  return (
+    isObject(value) &&
+    typeof value.id === 'number' &&
+    typeof value.name === 'string' &&
+    typeof value.active === 'boolean' &&
+    typeof value.enrolled === 'boolean' &&
+    isObject(value.poses) &&
+    Array.isArray(value.missing_poses)
+  );
+}
+
+export function isFaceUsersResponse(value: unknown): value is FaceUsersResponse {
+  return isObject(value) && Array.isArray(value.users) && value.users.every(isFaceUser);
+}
+
+export function isFaceReading(value: unknown): value is FaceReading {
+  return (
+    isObject(value) &&
+    typeof value.ok === 'boolean' &&
+    typeof value.faces === 'number' &&
+    Array.isArray(value.problems) &&
+    (value.face === null || isObject(value.face))
+  );
+}
+
+export function isAddFaceSampleResponse(value: unknown): value is AddFaceSampleResponse {
+  return isObject(value) && typeof value.pose === 'string' && isFaceUser(value.user);
+}
+
+export function isDeleted(value: unknown): value is { deleted: number } {
+  return isObject(value) && typeof value.deleted === 'number';
 }
