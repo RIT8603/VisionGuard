@@ -297,12 +297,16 @@ class WebSink(BaseOutputSink):
 
     def _draw(self, frame: np.ndarray, results: _Results, tracks: List[Any], fresh: bool):
         if results.overlays:
-            draw_overlays(frame, results.overlays)
+            # Dynamic alert boxes belong to the analysed person, unlike static
+            # zone geometry: do not keep them on an unrelated stale live frame.
+            draw_overlays(frame, [o for o in results.overlays if o.kind != "alert"])
         if fresh and magic_enabled():
             self._fx.draw(frame, tracks, keep_clear=results.detections)
         if self._config.show_boxes and fresh:
             draw_detections(frame, results.detections)
             draw_tracks(frame, tracks, track_names(results.detections))
+        if fresh:
+            draw_overlays(frame, [o for o in results.overlays if o.kind == "alert"])
         return self._jpeg(frame)
 
     def _synced_frame(self, frame: np.ndarray, now: float):
@@ -397,12 +401,13 @@ class WebSink(BaseOutputSink):
 
         frame = context.frame.copy()
         if context.overlays:
-            draw_overlays(frame, context.overlays)
+            draw_overlays(frame, [o for o in context.overlays if o.kind != "alert"])
         if magic_enabled():
             self._fx.draw(frame, context.get_tracks(), keep_clear=context.get_detections())
         if self._config.show_boxes:
             draw_detections(frame, untracked_detections(context))
             draw_tracks(frame, tracks_to_draw(context), track_names(context.get_detections("face_recognition")))
+        draw_overlays(frame, [o for o in context.overlays if o.kind == "alert"])
         return self._jpeg(frame)
 
     def _jpeg(self, frame: np.ndarray) -> Optional[bytes]:

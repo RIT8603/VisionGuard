@@ -32,7 +32,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-from computer_vision.core.context import BBox, Detection, Event, FrameContext, Pose, Severity
+from computer_vision.core.context import BBox, Detection, Event, FrameContext, Overlay, Pose, Severity
 from computer_vision.modules.base import BaseAIModule, ModuleResult, ModuleType
 from computer_vision.modules.tracking.tracker_core import IoUTracker
 
@@ -56,6 +56,9 @@ class FallDetectionModule(BaseAIModule):
           cooldown_seconds: 20    # quiet period per person after reporting
           severity: critical
           report_recovery: true   # also emit when they get back up
+          monitor_until_upright: true  # retain a confirmed fall through weak poses
+          recovery_confirm_frames: 5
+          recovery_max_confidence: 0.3  # fall score must be this low, with upright geometry
     """
 
     module_name = "fall_detection"
@@ -71,6 +74,13 @@ class FallDetectionModule(BaseAIModule):
         self._min_frames = max(1, int(self.params.get("min_frames", DEFAULT_MIN_FRAMES)))
         self._cooldown = float(self.params.get("cooldown_seconds", DEFAULT_COOLDOWN_SEC))
         self._report_recovery = bool(self.params.get("report_recovery", True))
+        self._recovery_on_track_loss = bool(self.params.get("report_recovery_on_track_loss", True))
+        self._monitor_until_upright = bool(self.params.get("monitor_until_upright", False))
+        self._recovery_frames = max(1, int(self.params.get("recovery_confirm_frames", 5)))
+        self._recovery_score = float(self.params.get("recovery_max_confidence", 0.3))
+        if self._monitor_until_upright and not 0 <= self._recovery_score < self._min_confidence:
+            raise ValueError("recovery_max_confidence must be >= 0 and below min_confidence")
+        self._recovery_streaks: Dict[int, int] = {}
 
         # Poses have no identity of their own, so an internal tracker gives
         # one. Reuses the same association code as person_tracking rather
@@ -107,6 +117,7 @@ class FallDetectionModule(BaseAIModule):
         self._streaks.clear()
         self._reported.clear()
         self._fallen.clear()
+        self._recovery_streaks.clear()
         super().cleanup()
 
     # ------------------------------------------------------------------ #
@@ -135,8 +146,25 @@ class FallDetectionModule(BaseAIModule):
             score, reasons = fall_score(pose)
             scores[track_id] = round(score, 3)
 
+            if self._monitor_until_upright and track_id in self._fallen:
+                # A weak or incomplete pose is not evidence of recovery. Keep
+                # following the observed body until upright posture is stable.
+                upright = self._upright(pose, score)
+                count = self._recovery_streaks.get(track_id, 0) + 1 if upright else 0
+                self._recovery_streaks[track_id] = count
+                if count >= self._recovery_frames:
+                    self._fallen.discard(track_id)
+                    self._streaks[track_id] = 0
+                    self._recovery_streaks.pop(track_id, None)
+                    if self._report_recovery:
+                        events.append(self._event(EVENT_RECOVERED, context, track_id, score, reasons,
+                                                  severity=Severity.INFO))
+                continue
+
             if score >= self._min_confidence:
                 self._streaks[track_id] = self._streaks.get(track_id, 0) + 1
+                if self._monitor_until_upright and self._streaks[track_id] >= self._min_frames:
+                    self._fallen.add(track_id)  # event cooldown must not suppress visual monitoring
                 if self._streaks[track_id] >= self._min_frames and self._ready(track_id, now):
                     self._reported[track_id] = now
                     self._fallen.add(track_id)
@@ -156,6 +184,22 @@ class FallDetectionModule(BaseAIModule):
                             )
                         )
 
+        # The browser displays the annotated JPEG. Publish the existing display
+        # overlay on every confirmed frame, including between cooldown events.
+        # Leave room above ordinary person/pose captions so they cannot hide it.
+        for track_id in sorted(self._fallen & by_id.keys()):
+            box = by_id[track_id].bbox
+            x1, y1 = max(0, int(box.x1) - 6), max(0, int(box.y1) - 26)
+            x2 = min(context.width - 1, int(box.x2) + 6)
+            y2 = min(context.height - 1, int(box.y2) + 6)
+            context.add_overlay(Overlay(
+                kind="alert",
+                points=[(x1, y1), (x2, y1), (x2, y2), (x1, y2)],
+                label="FALL DETECTED",
+                color=(40, 40, 240),
+                active=True,
+            ))
+
         for event in events:
             context.add_event(event)
             self.log.info("%s", event.describe())
@@ -174,6 +218,16 @@ class FallDetectionModule(BaseAIModule):
     # Internals
     # ------------------------------------------------------------------ #
 
+    def _upright(self, pose: Pose, score: float) -> bool:
+        if score > self._recovery_score or pose.bbox.height < 1.2 * pose.bbox.width:
+            return False
+        shoulders = pose.midpoint("left_shoulder", "right_shoulder")
+        hips = pose.midpoint("left_hip", "right_hip")
+        if shoulders is None or hips is None:
+            return False
+        dx, dy = hips[0] - shoulders[0], hips[1] - shoulders[1]
+        return dy > 0 and math.degrees(math.atan2(abs(dx), dy)) < 30
+
     def _retire_vanished(self, present: set, context: FrameContext) -> List[Event]:
         """Clear state for tracks that disappeared.
 
@@ -183,11 +237,15 @@ class FallDetectionModule(BaseAIModule):
         """
         events: List[Event] = []
 
+        alive = {state.track_id for state in self._tracker.active_tracks}
         for track_id in sorted(set(self._streaks) - present):
+            self._recovery_streaks.pop(track_id, None)
+            if self._monitor_until_upright and track_id in self._fallen and track_id in alive:
+                continue  # short pose gap: remember the incident, draw only observed boxes
             self._streaks.pop(track_id, None)
             if track_id in self._fallen:
                 self._fallen.discard(track_id)
-                if self._report_recovery:
+                if self._report_recovery and self._recovery_on_track_loss and not self._monitor_until_upright:
                     event = self._event(
                         EVENT_RECOVERED, context, track_id, 0.0, {},
                         severity=Severity.INFO,
@@ -200,7 +258,6 @@ class FallDetectionModule(BaseAIModule):
         # hand the same id back. Ids are never reused, so once the tracker has
         # dropped a track its entry is dead weight - on a 24/7 camera this
         # dict otherwise grows by one entry per person who ever fell.
-        alive = {state.track_id for state in self._tracker.active_tracks}
         for track_id in [tid for tid in self._reported if tid not in alive]:
             del self._reported[track_id]
         return events

@@ -1,5 +1,22 @@
 # PPE checkpoint provenance
 
+## Configured model
+
+`ppe_safetyvision_v2.pt` is the publisher's `v2/best.pt` from
+[ayushgupta7777/safetyvision-yolov8](https://huggingface.co/ayushgupta7777/safetyvision-yolov8),
+pinned at `56a71758b55f0e9f2b4b2d6b51a779a1f882da10`.
+Size: 22,547,434 bytes. SHA-256, checked against the upstream LFS metadata:
+`7863be4700dcf831579d610bb3fe3668fb29fb22ab17ca027b55e94b88bfff7a`.
+The model card declares AGPL-3.0. VisionGuard uses the publisher's 896 input size
+with its existing Ultralytics/CUDA backend, and only the four configured
+helmet/vest classes. Other model classes do not become enabled features.
+
+This model replaced the older candidate below after real factory testing.
+The crop experiment did not improve recall and was removed from production code.
+Neither checkpoint is claimed to be accurate on every CCTV camera.
+
+## Original comparison candidate (not configured)
+
 `ppe_yolov8n_construction.pt` is the trained `models/best.pt` from
 [snehilsanyal/Construction-Site-Safety-PPE-Detection](https://github.com/snehilsanyal/Construction-Site-Safety-PPE-Detection),
 pinned at commit `19b73225e5c9b653d4101d4723e591f3e6cae615`.

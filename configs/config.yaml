@@ -206,6 +206,7 @@ modules:
     model_confidence: 0.1  # shared-model key, see person_detection
     confidence_threshold: 0.4
     labels: []             # empty = every class the model knows (80 for COCO)
+    candidate_threshold: 0.1  # continue existing tracks through weak detections; never start new IDs
     # People and vehicles already have their own detectors and trackers.
     # Reported here as well, each got a second box and a second track id.
     # Animals are excluded too: nothing here uses them, and on the top-down
@@ -327,11 +328,11 @@ modules:
   ppe_detection:
     enabled: false
     backend: ultralytics
-    model: computer_vision/Model/custom/ppe_yolov8n_construction.pt
-    model_sha256: 4d07bbd92ca30d5c12dd67ccf52b2f54f533c9ccfef534284124682ef9f56129
+    model: computer_vision/Model/custom/ppe_safetyvision_v2.pt
+    model_sha256: 7863be4700dcf831579d610bb3fe3668fb29fb22ab17ca027b55e94b88bfff7a
     device: auto
     half: true
-    imgsz: 640
+    imgsz: 896
     labels: [Hardhat, Safety Vest, NO-Hardhat, NO-Safety Vest]
     confidence_threshold: 0.5
 
@@ -537,7 +538,7 @@ modules:
     interval_frames: 5
     max_per_frame: 2         # the model is heavy; cap crops embedded per frame
     identity_ttl_seconds: 1800
-    gallery_path: null       # e.g. computer_vision/Model/reid/gallery.npz
+    gallery_path: data/reid/gallery.npz  # shared by opt-in camera workers
     severity: info
 
   # ---- Tracking ----
@@ -606,6 +607,10 @@ modules:
     cooldown_seconds: 20
     severity: critical
     report_recovery: true
+    report_recovery_on_track_loss: false  # losing a pose is not observed recovery
+    monitor_until_upright: true # keep monitoring after a confirmed fall
+    recovery_confirm_frames: 5 # require consecutive visible upright poses
+    recovery_max_confidence: 0.3
 
   # ---- Higher-level analysis ----
   # Consumes tracks and produces EVENTS rather than detections. It publishes
@@ -706,6 +711,8 @@ modules:
     enabled: false           # requires object_tracking and person_detection
     labels: [backpack, handbag, suitcase]
     seconds: 20              # still and unattended for this long
+    forget_seconds: 30        # retain the clock across measured detector gaps
+    merge_bag_labels: true    # same stationary bag can change its COCO bag class
     owner_distance: 1.5      # "near": this many object-sizes from a person
     move_tolerance: 0.5      # "still": centre moves less than this many object-sizes
     severity: warning

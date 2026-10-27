@@ -169,6 +169,8 @@ def run_scenario(base, scenario: dict, output: Path, warmup: int):
     load_seconds = time.perf_counter() - started
     # Capture resolved parameters before cleanup; makes thresholds and model hashes reproducible.
     parameters = {m.module_name: dict(m.params) for m in modules}
+    backends = {m.module_name: m._backend.description for m in modules
+                if getattr(m, '_backend', None) is not None}
     pipeline = VisionPipeline(config, MediaTimedSource(video, source_id=scenario.get('camera_id', name)), modules, sink)
     started = time.perf_counter()
     stats = pipeline.run(RunLimits(max_frames=scenario['frames']))
@@ -184,7 +186,13 @@ def run_scenario(base, scenario: dict, output: Path, warmup: int):
         tracking = annotation.get('tracking', False)
         namespace = 'tracks' if tracking else 'detections'
         predictions = {row['frame']: row[namespace].get(key, []) for row in sink.records}
-        metrics[key] = score_frames(annotation['frames'], predictions, tracking=tracking)
+        frames = annotation['frames']
+        if annotation.get('labels'):
+            labels = set(annotation['labels'])
+            predictions = {n: [o for o in rows if o['label'] in labels] for n, rows in predictions.items()}
+            frames = [{**f, 'objects': [o for o in f['objects'] if o['label'] in labels]} for f in frames]
+        metrics[key] = score_frames(frames, predictions, tracking=tracking)
+        metrics[key]['class_scope'] = annotation.get('labels', 'all configured classes')
     for key in parameters:
         metrics.setdefault(key, {'status': 'not_measured', 'reason': 'No labelled frames for this module'})
     result = {'id': name, 'video': str(video_path), 'video_sha256': file_hash(video_path),
@@ -196,7 +204,7 @@ def run_scenario(base, scenario: dict, output: Path, warmup: int):
               'metrics': metrics, 'event_metrics': score_events(annotations.get('events', []), sink.events, annotations.get('event_modules', [])),
               'events': dict(Counter(e['event'] for e in sink.events)),
               'alerts': sink.alerts.listing(), 'observations': dict(sink.samples), 'errors': sink.errors,
-              'parameters': parameters, 'clock': 'video media time', 'warmup_frames_excluded_from_latency': warmup,
+              'parameters': parameters, 'backends': backends, 'clock': 'video media time', 'warmup_frames_excluded_from_latency': warmup,
               'annotation_provenance': annotations.get('provenance'), 'annotations': scenario.get('annotations')}
     with (output / f'{name}-predictions.jsonl').open('w', encoding='utf-8') as handle:
         for row in sink.records:
@@ -241,7 +249,37 @@ def main(argv=None):
             report['scenarios'].append({'id': scenario['id'], 'error': f'{type(exc).__name__}: {exc}'})
             print(f"ERROR {scenario['id']}: {exc}", flush=True)
         (output / 'benchmark.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+    write_markdown(report, output / 'benchmark.md')
     return int(any(s.get('error') or s.get('failed_frames') for s in report['scenarios']))
+
+
+def write_markdown(report: dict, path: Path) -> None:
+    def value(number):
+        return 'not measured' if number is None else f'{number:.3f}'
+    lines = ['# VisionGuard real-video benchmark', '', *['- ' + note for note in report['notes']], '']
+    for scenario in report['scenarios']:
+        lines.extend(['## ' + scenario['id'], ''])
+        if scenario.get('error'):
+            lines.extend(['Failed: ' + scenario['error'], ''])
+            continue
+        lines.extend([f"Frames: {scenario['frames']}; failed: {scenario['failed_frames']}; end-to-end FPS: {scenario['end_to_end_fps']:.2f}.", '',
+                      '| Module | Mean ms | p95 ms | Inverse-call FPS | Accuracy scope | Precision | Recall | FP | ID switches | Fragments |',
+                      '| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |'])
+        for name in scenario['parameters']:
+            latency = scenario['per_module_latency'].get(name, {})
+            accuracy = scenario['metrics'].get(name, {})
+            scope = 'boxes on labelled frames' if accuracy.get('status') == 'measured' else 'not measured'
+            if name in scenario['event_metrics']:
+                accuracy, scope = scenario['event_metrics'][name], 'events in labelled windows'
+            columns = [name, value(latency.get('mean_ms')), value(latency.get('p95_ms')),
+                       value(latency.get('equivalent_fps')), scope,
+                       value(accuracy.get('precision')), value(accuracy.get('recall')),
+                       str(accuracy.get('fp', 'not measured')), str(accuracy.get('id_switches', 'not measured')),
+                       str(accuracy.get('fragmentations', 'not measured'))]
+            lines.append('| ' + ' | '.join(columns) + ' |')
+        lines.extend(['', 'Observed events: `' + json.dumps(scenario['events']) + '`.', '',
+                      'Annotation provenance: ' + str(scenario.get('annotation_provenance') or 'No ground truth supplied.'), ''])
+    path.write_text('\n'.join(lines), encoding='utf-8')
 
 
 if __name__ == '__main__':
