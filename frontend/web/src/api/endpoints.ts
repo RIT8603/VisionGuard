@@ -1,11 +1,5 @@
-import { getJson, postJson, sendRequest } from './client';
+import { getJson, postJson } from './client';
 import {
-  isAddFaceSampleResponse,
-  isDeleted,
-  isFaceReading,
-  isFaceStatus,
-  isFaceUser,
-  isFaceUsersResponse,
   isSetSettingsResponse,
   isSettingsResponse,
   isAckAllResponse,
@@ -20,16 +14,8 @@ import {
   isVideosResponse,
 } from './guards';
 import type {
-  AccuracyReport,
-  AddFaceSampleResponse,
   EventLogPage,
-  IdentifyResult,
   LiveReport,
-  FaceReading,
-  FaceStatus,
-  FaceUser,
-  FaceUserInput,
-  FaceUsersResponse,
   SetSettingsResponse,
   SettingsResponse,
   AckAllResponse,
@@ -228,71 +214,6 @@ export function uploadVideo(
   });
 }
 
-// ---------- face registry ----------
-
-export function getFaceStatus(signal?: AbortSignal): Promise<FaceStatus> {
-  return getJson(`${ENDPOINTS.face}/status`, isFaceStatus, { signal });
-}
-
-export function getFaceUsers(signal?: AbortSignal): Promise<FaceUsersResponse> {
-  return getJson(`${ENDPOINTS.face}/users`, isFaceUsersResponse, { signal });
-}
-
-export function createFaceUser(input: Partial<FaceUserInput>, signal?: AbortSignal): Promise<FaceUser> {
-  return sendRequest('POST', `${ENDPOINTS.face}/users`, { json: input }, isFaceUser, { signal });
-}
-
-/** Change a user's details, or `{ active: false }` to stop recognising them. */
-export function updateFaceUser(
-  id: number,
-  changes: Partial<FaceUserInput> & { active?: boolean },
-  signal?: AbortSignal,
-): Promise<FaceUser> {
-  return sendRequest('PATCH', `${ENDPOINTS.face}/users/${id}`, { json: changes }, isFaceUser, {
-    signal,
-  });
-}
-
-/** Delete a user and every face template of theirs. */
-export function deleteFaceUser(id: number, signal?: AbortSignal): Promise<{ deleted: number }> {
-  return sendRequest('DELETE', `${ENDPOINTS.face}/users/${id}`, null, isDeleted, { signal });
-}
-
-/** Ask what one image shows (face, pose, quality). Stores nothing. */
-export function analyzeFace(image: Blob, signal?: AbortSignal): Promise<FaceReading> {
-  return sendRequest('POST', `${ENDPOINTS.face}/analyze`, { blob: image }, isFaceReading, {
-    signal,
-    timeoutMs: 10000,
-  });
-}
-
-/**
- * Learn one face template for a user from an image. `pose` is a pose id, or
- * 'auto' to file the photo under whichever view it shows.
- */
-export function addFaceSample(
-  id: number,
-  pose: string,
-  image: Blob,
-  signal?: AbortSignal,
-): Promise<AddFaceSampleResponse> {
-  return sendRequest(
-    'POST',
-    `${ENDPOINTS.face}/users/${id}/samples?pose=${encodeURIComponent(pose)}`,
-    { blob: image },
-    isAddFaceSampleResponse,
-    { signal, timeoutMs: 15000 },
-  );
-}
-
-/** Remove a user's templates for one pose, or all of them. */
-export function clearFaceSamples(id: number, pose?: string, signal?: AbortSignal): Promise<FaceUser> {
-  const query = pose ? `?pose=${encodeURIComponent(pose)}` : '';
-  return sendRequest('DELETE', `${ENDPOINTS.face}/users/${id}/samples${query}`, null, isFaceUser, {
-    signal,
-  });
-}
-
 // ---------- view options ----------
 
 export interface ViewOptions {
@@ -365,22 +286,4 @@ export function attendanceCsvUrl(day?: string): string {
 
 export function snapshotImageUrl(name: string): string {
   return `/api/snapshots/${encodeURIComponent(name)}`;
-}
-
-export function identifyFace(image: Blob, signal?: AbortSignal): Promise<IdentifyResult> {
-  return sendRequest(
-    'POST',
-    `${ENDPOINTS.face}/identify`,
-    { blob: image },
-    (v): v is IdentifyResult => isObj(v) && typeof v.decision === 'string',
-    { signal, timeoutMs: 15000 },
-  );
-}
-
-export function getFaceAccuracy(signal?: AbortSignal): Promise<AccuracyReport> {
-  return getJson(
-    `${ENDPOINTS.face}/accuracy`,
-    (v): v is AccuracyReport => isObj(v) && typeof v.identities === 'number',
-    { signal, timeoutMs: 15000 },
-  );
 }

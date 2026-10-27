@@ -1,0 +1,431 @@
+/*
+ * Face Registry page. Reuses .page, .panel, .field, .summary-btn, .notice and
+ * .data-table from index.css; only what those do not cover is here.
+ */
+
+/* ---------- layout: one column, two from 1100px ---------- */
+
+.face-layout {
+  display: grid;
+  gap: var(--gap);
+  margin-top: var(--gap);
+}
+
+.face-col {
+  display: grid;
+  align-content: start;
+  gap: var(--gap);
+  min-width: 0;
+}
+
+@media (min-width: 1100px) {
+  .face-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  }
+}
+
+/* ---------- shared bits ---------- */
+
+.face-ok {
+  color: var(--ok);
+}
+
+.face-warn {
+  color: var(--warn);
+}
+
+.face-bad {
+  color: var(--crit);
+}
+
+.face-hint {
+  padding: 12px;
+  border: 2px dashed var(--line);
+}
+
+.face-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.face-actions .summary-btn-quiet {
+  margin-top: 0;
+}
+
+.face-danger:not(:disabled) {
+  color: var(--crit);
+  border-color: var(--crit);
+}
+
+.face-actions .summary-btn:disabled,
+.face-upload.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* A <label> styled as a button around a hidden file input. */
+.face-upload {
+  display: inline-block;
+  margin-top: 0;
+}
+
+.face-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.face-upload:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.face-link {
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--primary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.face-link:disabled {
+  color: var(--dim);
+  cursor: not-allowed;
+}
+
+/* ---------- registry stats ---------- */
+
+.face-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.face-stats div {
+  padding: 8px 10px;
+  background: #000;
+  border: 1px solid var(--line);
+}
+
+.face-stats dt {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.face-stats dd {
+  margin: 4px 0 0;
+  font-size: 16px;
+}
+
+.face-callout {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 2px solid var(--warn);
+}
+
+.face-callout p {
+  margin: 0 0 8px;
+}
+
+.face-files {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- users ---------- */
+
+.face-add {
+  margin-bottom: 12px;
+}
+
+.face-users {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.face-user {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 2px solid var(--line);
+  cursor: pointer;
+}
+
+.face-user:hover {
+  border-color: var(--line-strong);
+}
+
+.face-user[aria-current='true'] {
+  border-color: var(--primary);
+  background: var(--panel-head);
+}
+
+.face-user:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.face-user-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.face-user-meta {
+  grid-column: 1;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.face-user-poses {
+  grid-row: 1;
+  grid-column: 2;
+  display: flex;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.face-user-poses span {
+  width: 16px;
+  text-align: center;
+  border: 1px solid var(--line);
+}
+
+.face-user-poses .face-pose-on {
+  color: var(--on-fill);
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+.face-badge {
+  grid-column: 2;
+  justify-self: end;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.face-badge-ok {
+  color: var(--ok);
+}
+
+.face-badge-warn {
+  color: var(--warn);
+}
+
+.face-badge-off {
+  color: var(--dim);
+}
+
+/* ---------- user form ---------- */
+
+.face-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.face-field-wide {
+  grid-column: 1 / -1;
+}
+
+.face-form .face-actions {
+  margin-top: 0;
+}
+
+.field textarea {
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: #000;
+  border: 2px solid var(--line-strong);
+  border-radius: 0;
+  resize: vertical;
+}
+
+.field textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.field textarea:disabled {
+  opacity: 0.55;
+}
+
+/* ---------- enrolment ---------- */
+
+.face-done {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  color: var(--ok);
+  border: 2px solid var(--ok);
+}
+
+.face-poses {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.face-poses li {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--line-strong);
+}
+
+.face-poses .face-pose-part {
+  border-left-color: var(--warn);
+}
+
+.face-poses .face-pose-done {
+  border-left-color: var(--ok);
+}
+
+.face-pose-name {
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.face-pose-label {
+  font-size: 12px;
+}
+
+.face-camera {
+  margin-top: 12px;
+}
+
+/* Mirrored like a mirror; the frames sent to the server are not. */
+.face-preview {
+  position: relative;
+  max-width: 640px;
+  background: #000;
+  border: 2px solid var(--line-strong);
+  transform: scaleX(-1);
+}
+
+.face-preview video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.face-box {
+  position: absolute;
+  border: 3px solid;
+  pointer-events: none;
+}
+
+.face-box-ok {
+  border-color: var(--ok);
+}
+
+.face-box-warn {
+  border-color: var(--dim);
+}
+
+.face-guide {
+  margin: 8px 0 0;
+  font-size: 15px;
+}
+
+.face-message {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid;
+}
+
+.face-message-ok {
+  color: var(--ok);
+}
+
+.face-message-warn {
+  color: var(--warn);
+}
+
+.face-message-crit {
+  color: var(--crit);
+}
+
+.face-uploads {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- recognition check ---------- */
+
+.face-result {
+  margin-top: 12px;
+}
+
+.face-result p {
+  margin: 0 0 8px;
+}
+
+.face-decision {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.face-table {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 539px) {
+  .face-poses li {
+    grid-template-columns: 1fr auto auto;
+  }
+
+  .face-pose-label {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+/* Search box above the user list (the base .faces-search style is in index.css). */
+.face-col .faces-search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+}
+
+/* Optional views the operator chose not to capture this time. */
+.face-pose-skipped .face-pose-name {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
