@@ -91,3 +91,22 @@ def test_benchmark_includes_dependencies_without_enabling_everything():
     config = enabled_config(load_config(use_env=False), ['ppe_violation'], {})
     assert set(config.enabled_module_names()) == {'ppe_violation', 'ppe_detection', 'person_tracking', 'person_detection'}
     assert config.processing.max_fps == 0
+
+
+def test_lost_fall_track_can_be_retired_without_claiming_recovery():
+    from tools.tests.test_pose_fall_attendance import build_fall, lying_pose, pose_ctx
+    module = build_fall(min_frames=1, report_recovery_on_track_loss=False)
+    module.process(pose_ctx([lying_pose()], 1, ts=0))
+    missing = pose_ctx([], 2, ts=1)
+    result = module.process(missing)
+    assert result.data['fallen'] == 0
+    assert missing.events == []
+
+
+def test_registry_reader_does_not_create_a_missing_database(tmp_path):
+    import sqlite3
+    from tools.benchmark_cv import registry_store
+    path = tmp_path / 'missing.db'
+    with pytest.raises(sqlite3.OperationalError):
+        registry_store(str(path), .5)
+    assert not path.exists()

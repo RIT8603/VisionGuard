@@ -2,6 +2,9 @@
 
 Run from the repository root with the existing Python environment:
 
+Install the development dependencies in `requirements-dev.txt` first when using
+a new environment; SciPy is used by the offline evaluators, not the live pipeline.
+
 ```powershell
 .\.venv\Scripts\python.exe -B -m tools.benchmark_cv --manifest runs/module-validation-20261026/scenarios.json --output runs/module-validation-20261026/benchmark
 ```
@@ -102,3 +105,21 @@ human identities. Use individual-person scenarios when that distinction matters.
 
 Outputs are JSON metrics and one JSONL prediction file per scenario. Files can
 contain enrolled names and appearance IDs; treat them as local project data.
+`benchmark.md` provides the per-module latency/precision/recall/FP/ID-switch table.
+An annotation module can set `labels` to restrict its explicitly disclosed class
+scope (for example, Safety Vest only); other classes are then unscored.
+
+## Existing enrolled-face diagnostic
+
+```powershell
+.\.venv\Scripts\python.exe -B -m tools.evaluate_recognition --registry data/faces/faces.db --photo-manifest "data/faces/New user face data/face-photos/manifest.csv" --config configs/config.yaml --json-output runs/module-validation-20261026/face-registry-diagnostic.json
+```
+
+This reads the real active registry and uses the configured detector/embedder.
+It scores every supplied photo, including detection failures, uses employee IDs
+or names from the export metadata, and reports near-identical template overlap.
+The report explicitly labels this as an enrollment-export diagnostic. It does
+not measure independent CCTV name accuracy or the production module's temporal
+quality/confirmation rules. Do not substitute these scores for an independent,
+human-labelled CCTV evaluation. The existing `--faces/--detector/--embedder`
+image-split evaluator remains supported.
