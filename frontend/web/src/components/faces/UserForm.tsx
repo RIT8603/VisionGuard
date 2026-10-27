@@ -1,87 +1,130 @@
 import { useState, type FormEvent } from 'react';
-import type { FaceUser, FaceUserInput } from '../../api/types';
+import { toApiError } from '../../api/client';
+import { FACE_USER_FIELDS, type FaceUser, type FaceUserFields } from '../../api/faceTypes';
+import { createFaceUser, deleteFaceUser, updateFaceUser } from '../../api/faces';
+import { Panel } from '../ui/Panel';
 
-interface UserFormProps {
-  /** The user being edited; omit to add a new one. */
-  user?: FaceUser;
-  busy: boolean;
-  error: string | null;
-  onSubmit: (input: FaceUserInput) => void;
+const LABELS: Record<keyof FaceUserFields, string> = {
+  name: 'Full name',
+  employee_id: 'Employee / roll no.',
+  role: 'Role',
+  department: 'Department / class',
+  notes: 'Notes',
+};
+
+const EMPTY: FaceUserFields = { name: '', employee_id: '', role: '', department: '', notes: '' };
+
+function fieldsOf(user: FaceUser | null): FaceUserFields {
+  if (!user) return EMPTY;
+  return {
+    name: user.name,
+    employee_id: user.employee_id,
+    role: user.role,
+    department: user.department,
+    notes: user.notes,
+  };
+}
+
+interface Props {
+  /** null = a new user. */
+  user: FaceUser | null;
+  editable: boolean;
+  onSaved: (user: FaceUser, created: boolean) => void;
+  onDeleted: (id: number) => void;
   onCancel: () => void;
 }
 
-const LIMITS = { name: 80, employee_id: 40, role: 60, department: 60, notes: 500 } as const;
+/** Add or edit one user's details. Keyed by user id by the parent, so state resets per user. */
+export function UserForm({ user, editable, onSaved, onDeleted, onCancel }: Props) {
+  const [draft, setDraft] = useState<FaceUserFields>(() => fieldsOf(user));
+  const [active, setActive] = useState(user?.active ?? true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-export function UserForm({ user, busy, error, onSubmit, onCancel }: UserFormProps) {
-  const [values, setValues] = useState<FaceUserInput>({
-    name: user?.name ?? '',
-    employee_id: user?.employee_id ?? '',
-    role: user?.role ?? '',
-    department: user?.department ?? '',
-    notes: user?.notes ?? '',
-  });
-  const [touched, setTouched] = useState(false);
+  const isNew = user === null;
+  const disabled = !editable || busy;
 
-  const set = (key: keyof FaceUserInput) => (value: string) =>
-    setValues((previous) => ({ ...previous, [key]: value }));
-
-  const nameProblem = values.name.trim() === '' ? 'A name is required.' : null;
-
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault();
-    setTouched(true);
-    if (nameProblem) return;
-    onSubmit(values);
+    if (!draft.name.trim()) {
+      setError('A name is required.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = isNew ? await createFaceUser(draft) : await updateFaceUser(user.id, { ...draft, active });
+      onSaved(saved, isNew);
+    } catch (caught) {
+      setError(toApiError(caught).message);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const field = (key: keyof FaceUserInput, label: string, hint?: string) => (
-    <div className="field">
-      <label htmlFor={`user-${key}`}>{label}</label>
-      <input
-        id={`user-${key}`}
-        type="text"
-        value={values[key]}
-        maxLength={LIMITS[key]}
-        disabled={busy}
-        aria-invalid={key === 'name' && touched && nameProblem !== null}
-        onChange={(event) => set(key)(event.target.value)}
-      />
-      {key === 'name' && touched && nameProblem ? (
-        <p className="field-problem">{nameProblem}</p>
-      ) : (
-        hint && <p className="field-help">{hint}</p>
-      )}
-    </div>
-  );
+  const remove = async () => {
+    if (!user) return;
+    if (!window.confirm(`Delete ${user.name}? This removes all of their face templates.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteFaceUser(user.id);
+      onDeleted(user.id);
+    } catch (caught) {
+      setError(toApiError(caught).message);
+      setBusy(false);
+    }
+  };
 
   return (
-    <form className="user-form" onSubmit={submit} noValidate>
-      <div className="user-form-grid">
-        {field('name', 'Full name', 'Shown on the live video when this person is recognised.')}
-        {field('employee_id', 'ID / Roll no.')}
-        {field('role', 'Role (student, staff...)')}
-        {field('department', 'Class / Department')}
-      </div>
-      <div className="field">
-        <label htmlFor="user-notes">Notes</label>
-        <input
-          id="user-notes"
-          type="text"
-          value={values.notes}
-          maxLength={LIMITS.notes}
-          disabled={busy}
-          onChange={(event) => set('notes')(event.target.value)}
-        />
-      </div>
-      {error && <p className="inline-error">{error}</p>}
-      <div className="user-form-actions">
-        <button type="submit" className="summary-btn" disabled={busy}>
-          {busy ? 'Saving…' : user ? 'Save changes' : 'Add user'}
-        </button>
-        <button type="button" className="summary-btn summary-btn-quiet user-form-cancel" onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
-    </form>
+    <Panel title={isNew ? 'Add user' : 'Details'}>
+      <form className="face-form" onSubmit={submit}>
+        {(Object.keys(FACE_USER_FIELDS) as (keyof FaceUserFields)[]).map((key) => {
+          const id = `face-${key}`;
+          const props = {
+            id,
+            value: draft[key],
+            maxLength: FACE_USER_FIELDS[key],
+            disabled,
+            onChange: (event: { target: { value: string } }) => setDraft({ ...draft, [key]: event.target.value }),
+          };
+          return (
+            <div key={key} className={key === 'notes' ? 'field face-field-wide' : 'field'}>
+              <label htmlFor={id}>
+                {LABELS[key]}
+                {key === 'name' && ' (required, unique)'}
+              </label>
+              {key === 'notes' ? <textarea rows={2} {...props} /> : <input type="text" required={key === 'name'} {...props} />}
+              {key === 'name' && <p className="field-help">Shown on the live video when this person is recognised.</p>}
+            </div>
+          );
+        })}
+
+        {!isNew && (
+          <label className="field-check face-field-wide">
+            <input type="checkbox" checked={active} disabled={disabled} onChange={(e) => setActive(e.target.checked)} />
+            Active - recognised on the cameras
+          </label>
+        )}
+
+        {error && <p className="inline-error face-field-wide" role="alert">{error}</p>}
+
+        {editable && (
+          <div className="face-actions face-field-wide">
+            <button type="submit" className="summary-btn" disabled={busy}>
+              {isNew ? 'Save and enrol' : 'Save'}
+            </button>
+            <button type="button" className="summary-btn summary-btn-quiet" disabled={busy} onClick={onCancel}>
+              {isNew ? 'Cancel' : 'Close'}
+            </button>
+            {!isNew && (
+              <button type="button" className="summary-btn summary-btn-quiet face-danger" disabled={busy} onClick={remove}>
+                Delete user
+              </button>
+            )}
+          </div>
+        )}
+      </form>
+    </Panel>
   );
 }

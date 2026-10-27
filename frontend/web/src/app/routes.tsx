@@ -39,8 +39,8 @@ export function AppRoutes() {
         <Route path={PATHS.portal.cameras} element={<CamerasPage />} />
         <Route path={PATHS.portal.events} element={<EventsPage />} />
         <Route path={PATHS.portal.modules} element={<ModulesPage />} />
-        <Route path={PATHS.portal.alerts} element={<AlertsPage />} />
         <Route path={PATHS.portal.faces} element={<FacesPage />} />
+        <Route path={PATHS.portal.alerts} element={<AlertsPage />} />
         <Route path={PATHS.portal.reports} element={<ReportsPage />} />
         <Route path={PATHS.portal.settings} element={<SettingsPage />} />
       </Route>

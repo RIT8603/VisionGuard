@@ -1,32 +1,63 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toApiError } from '../../api/client';
-import { createFaceUser, deleteFaceUser, setModules, updateFaceUser } from '../../api/endpoints';
-import type { FaceStatus, FaceUser, FaceUserInput } from '../../api/types';
+import { setModules } from '../../api/endpoints';
+import type { FaceStatus, FaceUser } from '../../api/faceTypes';
+import { getFaceStatus, listFaceUsers } from '../../api/faces';
 import { PATHS } from '../../app/paths';
 import { EnrollmentWizard } from '../../components/faces/EnrollmentWizard';
 import { RecognitionCheck } from '../../components/faces/RecognitionCheck';
+import { RegistryStatus } from '../../components/faces/RegistryStatus';
 import { UserForm } from '../../components/faces/UserForm';
-import { useFaceRegistry } from '../../hooks/useFaceRegistry';
+import { UserList } from '../../components/faces/UserList';
+import { usePageVisible } from '../../hooks/usePageVisible';
 import { usePipeline } from '../../state/PipelineProvider';
 
-type Panel = { kind: 'add' } | { kind: 'edit'; id: number } | { kind: 'enroll'; id: number } | null;
+/** null = nothing open; 'new' = the add-user form; a number = that user. */
+type Selection = null | 'new' | number;
 
 export function FacesPage() {
-  const registry = useFaceRegistry();
-  const { status: pipeline } = usePipeline();
-  const [panel, setPanel] = useState<Panel>(null);
-  const [busy, setBusy] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [filter, setFilter] = useState('');
-  const [enabling, setEnabling] = useState<'idle' | 'applying' | 'error'>('idle');
-  const [enableError, setEnableError] = useState<string | null>(null);
+  const visible = usePageVisible();
+  const [status, setStatus] = useState<FaceStatus | null>(null);
+  const [users, setUsers] = useState<FaceUser[]>([]);
+  const [loadError, setLoadError] = useState<{ unavailable: boolean; message: string } | null>(null);
+  const [selection, setSelection] = useState<Selection>(null);
 
-  const faceStatus = registry.status;
-  const editable = faceStatus?.editable ?? false;
+  const load = useCallback(async () => {
+    try {
+      const [nextStatus, nextUsers] = await Promise.all([getFaceStatus(), listFaceUsers()]);
+      setStatus(nextStatus);
+      setUsers(nextUsers);
+      setLoadError(null);
+    } catch (caught) {
+      const error = toApiError(caught);
+      setLoadError({ unavailable: error.status === 503, message: error.message });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (visible) void load();
+  }, [visible, load]);
+
+  /** A user changed (details or templates): update the list and the totals. */
+  const userChanged = useCallback(
+    (user: FaceUser) => {
+      setUsers((current) => {
+        const exists = current.some((entry) => entry.id === user.id);
+        return exists ? current.map((entry) => (entry.id === user.id ? user : entry)) : [...current, user];
+      });
+      void getFaceStatus().then(setStatus, () => undefined);
+    },
+    [],
+  );
+
+  const selected = typeof selection === 'number' ? users.find((user) => user.id === selection) ?? null : null;
+  const editable = status?.editable ?? false;
 
   // Are the two modules that act on this registry actually running?
+  const { status: pipeline } = usePipeline();
+  const [enabling, setEnabling] = useState<'idle' | 'applying' | 'error'>('idle');
+  const [enableError, setEnableError] = useState<string | null>(null);
   const enabledModules = new Set(pipeline.data?.info.modules.map((m) => m.name) ?? []);
   const detectionOn = enabledModules.has('face_detection');
   const recognitionOn = enabledModules.has('face_recognition');
@@ -48,98 +79,34 @@ export function FacesPage() {
     }
   };
 
-  const query = filter.trim().toLowerCase();
-  const users = registry.users.filter(
-    (user) =>
-      query === '' ||
-      [user.name, user.employee_id, user.role, user.department].some((v) => v.toLowerCase().includes(query)),
-  );
-
-  const open = (next: Panel) => {
-    setFormError(null);
-    setActionError(null);
-    setPanel(next);
-  };
-
-  const submitUser = async (input: FaceUserInput) => {
-    setBusy(true);
-    setFormError(null);
-    try {
-      if (panel?.kind === 'edit') {
-        registry.replaceUser(await updateFaceUser(panel.id, input));
-        setPanel(null);
-      } else {
-        const created = await createFaceUser(input);
-        registry.replaceUser(created);
-        // A new user has no face yet: go straight to capturing it.
-        setPanel({ kind: 'enroll', id: created.id });
-      }
-    } catch (caught) {
-      setFormError(toApiError(caught).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const run = async (action: () => Promise<void>) => {
-    setBusy(true);
-    setActionError(null);
-    try {
-      await action();
-    } catch (caught) {
-      setActionError(toApiError(caught).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleActive = (user: FaceUser) =>
-    run(async () => registry.replaceUser(await updateFaceUser(user.id, { active: !user.active })));
-
-  const remove = (user: FaceUser) =>
-    run(async () => {
-      const sure = window.confirm(
-        `Delete ${user.name}? Their details and every stored face template are removed for good, and they will no longer be recognised.`,
-      );
-      if (!sure) return;
-      await deleteFaceUser(user.id);
-      registry.removeUser(user.id);
-      if (panel && 'id' in panel && panel.id === user.id) setPanel(null);
-    });
-
-  const selected =
-    panel && 'id' in panel ? (registry.users.find((user) => user.id === panel.id) ?? null) : null;
-
   return (
     <>
       <title>Face Registry · VisionGuard</title>
 
       <div className="page">
         <header className="page-head">
+          {/* h2: the portal header's brand is the page's h1. */}
           <h2 className="page-title">Face Registry</h2>
           <p className="page-intro">
-            Add the people VisionGuard should recognise, then capture each person's face from several
-            angles. Registered people are named on the live video; everyone else is shown as unknown. Only
-            numeric face templates are stored, never photographs.
+            Add the people VisionGuard should recognise and capture each face from several angles. A registered person
+            is named on the video from the next frame - no restart. Only face templates (numbers) are stored, never
+            photos. Enable face detection and face recognition on the Modules page.
           </p>
         </header>
 
-        {registry.error && (
-          <p className="inline-error">Face registry unavailable: {registry.error.message}</p>
-        )}
-
-        {faceStatus && <StatusStrip status={faceStatus} />}
-
-        {faceStatus && !faceStatus.models.ready && (
-          <div className="notice notice-warn faces-notice" role="alert">
-            <span className="notice-word">Models</span>
-            <div className="notice-body">
-              <strong>Face models are not installed.</strong> Capturing and recognising faces needs two
-              small model files. Run this once in the project folder, then reload this page:
-              <pre className="notice-code mono">python -m tools.download_face_models</pre>
-            </div>
+        {loadError?.unavailable && (
+          <div className="notice notice-warn" role="status">
+            <span className="notice-word">Unavailable</span>
+            <div className="notice-body">{loadError.message}</div>
           </div>
         )}
+        {loadError && !loadError.unavailable && (
+          <p className="inline-error">Face Registry unavailable: {loadError.message}</p>
+        )}
+        {status && !editable && (
+          <p className="page-meta mono">Read-only for this run (dashboard.allow_face_edit: false).</p>
+        )}
+        {!status && !loadError && <p className="empty">Loading the registry…</p>}
 
         {pipelineKnown && (!detectionOn || !recognitionOn) && (
           <div className="notice notice-info faces-notice" role="status">
@@ -154,7 +121,7 @@ export function FacesPage() {
                 <button
                   type="button"
                   className="summary-btn"
-                  disabled={enabling === 'applying' || !pipelineKnown}
+                  disabled={enabling === 'applying'}
                   onClick={() => void enableRecognition()}
                 >
                   {enabling === 'applying' ? 'Applying…' : 'Enable live recognition'}
@@ -170,209 +137,61 @@ export function FacesPage() {
           </div>
         )}
 
-        {faceStatus && !faceStatus.editable && (
-          <p className="inline-error">
-            The registry is read-only (dashboard.allow_face_edit is off), so users cannot be added or
-            changed.
-          </p>
-        )}
-
-        <div className="faces-toolbar">
-          <input
-            type="search"
-            className="faces-search"
-            placeholder="Search name, ID, role…"
-            aria-label="Search users"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-          />
-          <span className="page-meta mono">
-            {users.length} of {registry.users.length} users
-          </span>
-          <button
-            type="button"
-            className="summary-btn"
-            disabled={!editable || busy}
-            onClick={() => open({ kind: 'add' })}
-          >
-            Add user
-          </button>
-        </div>
-
-        {actionError && <p className="inline-error">{actionError}</p>}
-
-        {panel?.kind === 'add' && (
-          <section className="panel faces-form-panel">
-            <header className="panel-head">
-              <h2>New user</h2>
-            </header>
-            <div className="panel-body">
-              <UserForm busy={busy} error={formError} onSubmit={(v) => void submitUser(v)} onCancel={() => setPanel(null)} />
-            </div>
-          </section>
-        )}
-
-        {panel?.kind === 'edit' && selected && (
-          <section className="panel faces-form-panel">
-            <header className="panel-head">
-              <h2>Edit · {selected.name}</h2>
-            </header>
-            <div className="panel-body">
-              <UserForm
-                user={selected}
-                busy={busy}
-                error={formError}
-                onSubmit={(v) => void submitUser(v)}
-                onCancel={() => setPanel(null)}
+        {status && (
+          <div className="face-layout">
+            <div className="face-col">
+              <RegistryStatus status={status} />
+              <UserList
+                users={users}
+                poses={status.poses}
+                selectedId={typeof selection === 'number' ? selection : null}
+                editable={editable}
+                onSelect={(user) => setSelection(user.id)}
+                onAdd={() => setSelection('new')}
               />
             </div>
-          </section>
-        )}
 
-        {panel?.kind === 'enroll' && selected && faceStatus && (
-          <EnrollmentWizard
-            key={selected.id}
-            user={selected}
-            status={faceStatus}
-            onUserChange={registry.replaceUser}
-            onClose={() => setPanel(null)}
-          />
-        )}
-
-        {users.length === 0 ? (
-          <p className="empty">
-            {registry.loading
-              ? 'Loading users…'
-              : registry.users.length === 0
-                ? 'No users yet. Press “Add user” to register the first person.'
-                : 'No users match that search.'}
-          </p>
-        ) : (
-          <div className="faces-table-wrap">
-            <table className="faces-table">
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">ID</th>
-                  <th scope="col">Role</th>
-                  <th scope="col">Face data</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">
-                    <span className="visually-hidden">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((user) => (
-                  <tr key={user.id} className={user.active ? '' : 'is-inactive'}>
-                    <th scope="row">
-                      <span className="faces-name">{user.name}</span>
-                      {user.department && <span className="faces-sub">{user.department}</span>}
-                    </th>
-                    <td className="mono">{user.employee_id || '—'}</td>
-                    <td>{user.role || '—'}</td>
-                    <td>
-                      <PoseChips user={user} status={faceStatus} />
-                    </td>
-                    <td>
-                      <span className={`faces-badge ${badgeClass(user)}`}>{badgeText(user)}</span>
-                    </td>
-                    <td className="faces-actions">
-                      <button
-                        type="button"
-                        className="link-btn"
-                        disabled={!editable || busy}
-                        onClick={() => open({ kind: 'enroll', id: user.id })}
-                      >
-                        {user.sample_count === 0 ? 'Capture face' : 'Add / retake'}
-                      </button>
-                      <button
-                        type="button"
-                        className="link-btn"
-                        disabled={!editable || busy}
-                        onClick={() => open({ kind: 'edit', id: user.id })}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="link-btn"
-                        disabled={!editable || busy}
-                        onClick={() => void toggleActive(user)}
-                      >
-                        {user.active ? 'Deactivate' : 'Activate'}
-                      </button>
-                      <button
-                        type="button"
-                        className="link-btn link-btn-danger"
-                        disabled={!editable || busy}
-                        onClick={() => void remove(user)}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="face-col">
+              {selection === 'new' && (
+                <UserForm
+                  key="new"
+                  user={null}
+                  editable={editable}
+                  onSaved={(user) => {
+                    userChanged(user);
+                    setSelection(user.id);
+                  }}
+                  onDeleted={() => undefined}
+                  onCancel={() => setSelection(null)}
+                />
+              )}
+              {selected && (
+                <>
+                  <UserForm
+                    key={selected.id}
+                    user={selected}
+                    editable={editable}
+                    onSaved={userChanged}
+                    onDeleted={(id) => {
+                      setUsers((current) => current.filter((user) => user.id !== id));
+                      setSelection(null);
+                      void getFaceStatus().then(setStatus, () => undefined);
+                    }}
+                    onCancel={() => setSelection(null)}
+                  />
+                  <EnrollmentWizard key={`enrol-${selected.id}`} user={selected} status={status} onUserChange={userChanged} />
+                </>
+              )}
+              {selection === null && (
+                <p className="empty face-hint">
+                  {users.length ? 'Select a user to edit them or capture their face.' : editable ? 'Add a user to start.' : 'No users yet.'}
+                </p>
+              )}
+              <RecognitionCheck modelsReady={status.models.ready} />
+            </div>
           </div>
         )}
-
-        {faceStatus?.models.ready && registry.users.length > 0 && <RecognitionCheck />}
       </div>
     </>
-  );
-}
-
-function badgeText(user: FaceUser): string {
-  if (!user.active) return 'Inactive';
-  if (user.enrolled) return 'Enrolled';
-  if (user.sample_count > 0) return 'Incomplete';
-  return 'No face yet';
-}
-
-function badgeClass(user: FaceUser): string {
-  if (!user.active) return 'is-off';
-  if (user.enrolled) return 'is-ok';
-  return 'is-warn';
-}
-
-function PoseChips({ user, status }: { user: FaceUser; status: FaceStatus | null }) {
-  const poses = status?.poses ?? [];
-  if (poses.length === 0) return <span>{user.sample_count}</span>;
-  return (
-    <span className="pose-chips">
-      {poses.map((pose) => {
-        const count = user.poses[pose.id] ?? 0;
-        return (
-          <span
-            key={pose.id}
-            className={`pose-chip${count > 0 ? ' is-on' : ''}`}
-            title={`${pose.id}: ${count} captured${pose.required ? ' (required)' : ''}`}
-          >
-            {pose.id[0].toUpperCase()}
-          </span>
-        );
-      })}
-    </span>
-  );
-}
-
-function StatusStrip({ status }: { status: FaceStatus }) {
-  const items: [string, string][] = [
-    ['Users', String(status.users)],
-    ['Enrolled', String(status.enrolled)],
-    ['Face templates', String(status.templates)],
-    ['Models', status.models.ready ? 'ready' : 'missing'],
-  ];
-  return (
-    <dl className="faces-strip">
-      {items.map(([label, value]) => (
-        <div key={label} className="faces-strip-item">
-          <dt>{label}</dt>
-          <dd className="mono">{value}</dd>
-        </div>
-      ))}
-    </dl>
   );
 }

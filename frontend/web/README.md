@@ -50,6 +50,7 @@ dashboard at <http://localhost:5173/portal/dashboard>.
 | `/portal/events` | Portal | Events & Alerts: severity summary, filters and the full event log |
 | `/portal/cameras` | Portal | Set the number of cameras and fill in one form per camera; Apply restarts the backend's pipelines |
 | `/portal/modules` | Portal | Module selection (toggling a module applies it to the running backend) |
+| `/portal/faces` | Portal | Face Registry: users, multi-angle face enrolment, recognition check |
 | anything else | Public | Branded 404 (keeps the URL that was typed) |
 
 All paths are defined once in [`src/app/paths.ts`](src/app/paths.ts); link with
@@ -199,6 +200,89 @@ while the backend binds IPv4 only.
 Not used: `/api/snapshot.jpg`, and the backend's `/`, which serves the legacy
 page. Every endpoint is GET-only and unauthenticated; none can control the
 pipeline.
+
+## Face Registry
+
+`/portal/faces` manages the people VisionGuard recognises, through the
+backend's `/api/face/*` routes (see the repository README, "Face Registry").
+Calls live in [`src/api/faces.ts`](src/api/faces.ts); the response types and
+their checks in [`src/api/faceTypes.ts`](src/api/faceTypes.ts) mirror
+`backend/services/faces.py` by hand - update them together.
+
+| Endpoint | Used for |
+|---|---|
+| `GET /api/face/status` | Model readiness, poses, counts, threshold, read-only flag |
+| `GET/POST /api/face/users`, `GET/PATCH/DELETE /api/face/users/{id}` | List, add, edit (incl. active), delete users |
+| `POST /api/face/users/{id}/samples?pose=` | One capture: a named pose from the camera, `auto` for uploads |
+| `DELETE /api/face/users/{id}/samples[?pose=]` | Retake one pose, or clear all |
+| `POST /api/face/analyze` | Live guide while the camera runs (~every 0.6 s, one at a time) |
+| `POST /api/face/identify` | "Test a photo" |
+| `GET /api/face/accuracy` | "Estimate accuracy" |
+
+- **Enrolment.** Front, left and right are required, up and down optional,
+  `samples_per_pose` captures each, in any order. With the camera, a frame is
+  captured automatically once the server says it is good and the head shows a
+  view that still needs captures. Uploads are filed under the view each photo
+  shows. A refused capture shows the server's reason as-is.
+- **Camera access needs `localhost` or HTTPS.** Over plain HTTP on a network
+  address (a LAN or Tailscale IP) the browser blocks it, and the page offers
+  **Upload photos** only.
+- **Read-only** (`dashboard.allow_face_edit: false`): the list, status, photo
+  test and accuracy estimate still work; every edit is hidden.
+- **Models missing:** the page shows the `python -m tools.download_face_models`
+  command, and enrolment and photo tests stay off until both files exist.
+- Images are sent as the raw request body and never stored by the browser; the
+  backend keeps templates only.
+
+## Help assistant
+
+The **Help** button on every page (public and portal; mounted once in
+`src/app/App.tsx`) opens a product-help chat: what
+VisionGuard and each module do, camera setup, and troubleshooting. It answers
+from static product notes only - it never sees cameras, events, alerts or
+settings, and cannot change anything.
+
+It does not talk to the Python backend. The browser calls `/api/assistant`, a
+Vercel Function in `api/assistant.ts`; the AI provider's key stays on the
+server. In `npm run dev` the same handler is served by a small Vite plugin
+(`vite.config.ts`) ahead of the `/api` proxy. `npm run preview` does not serve
+it, so the assistant shows as unavailable there.
+
+| Env var | Purpose |
+|---|---|
+| `ASSISTANT_PROVIDER` | `openrouter` (the only provider so far). Unset = assistant unavailable |
+| `ASSISTANT_MODEL` | **Required.** OpenRouter model id from <https://openrouter.ai/models>. No default, so the price is always an explicit choice; unset = assistant unavailable |
+| `OPENROUTER_API_KEY` | Key for the `openrouter` provider |
+
+Locally, copy `.env.example` to `.env.local` (git-ignored); on Vercel, set them
+as Project Environment Variables. Never give them a `VITE_` prefix - that would
+put the key in the browser bundle.
+
+Layout:
+
+```
+api/assistant.ts               Vercel Function: GET availability, POST chat
+api/_lib/assistant/handler.ts  validation, limits, error mapping
+api/_lib/assistant/provider.ts provider interface + getProvider()
+api/_lib/assistant/openrouter.ts the only provider-specific file (plain fetch, no SDK)
+api/_lib/assistant/knowledge.ts  system prompt; modules come from src/content/moduleCatalog.ts
+```
+
+**Switching provider:** add `api/_lib/assistant/<name>.ts` implementing
+`AssistantProvider` (map its failures to `ProviderError` kinds: `refused`,
+`rate_limited`, `upstream`), add one `case` to `getProvider()`, and set
+`ASSISTANT_PROVIDER`. Nothing outside that folder changes.
+
+**Cost protection.** The portal has no login, so anyone with the URL can use
+the assistant. Requests are capped at 1,000 characters per message and the last
+8 turns, replies are length-capped, and each server instance allows 5 questions
+a minute and 30 an hour per client, and 150 an hour in total. Those counters
+are per instance and reset on cold starts, so for a hard limit also add a
+Vercel Firewall rate-limit rule on `/api/assistant`, and set a spend limit
+with the AI provider.
+
+The deployed project's Root Directory must be `frontend/web` for Vercel to
+pick up `api/`.
 
 ## Dashboard behaviour
 

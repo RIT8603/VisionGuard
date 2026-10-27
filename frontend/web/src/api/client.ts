@@ -91,14 +91,26 @@ export async function getJson<T>(
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/** POST a JSON body and verify the response shape. See sendJson. */
+export function postJson<T>(
+  path: string,
+  body: unknown,
+  isValid: (value: unknown) => value is T,
+  options?: RequestOptions,
+): Promise<T> {
+  return sendJson('POST', path, body, isValid, options);
+}
+
 /**
- * POST a JSON body and verify the response shape.
+ * Send a request and verify the JSON response's shape.
  *
- * The only endpoint that needs this today, `/api/modules`, answers a
- * rejected request with `{"error": "<reason>"}` rather than an empty body,
- * so a non-2xx response's message is taken from there when present.
+ * `body` is sent as JSON, or as-is when it is a Blob (an image upload);
+ * undefined sends no body. The write endpoints answer a rejected request
+ * with `{"error": "<reason>"}` rather than an empty body, so a non-2xx
+ * response's message is taken from there when present.
  */
-export async function postJson<T>(
+export async function sendJson<T>(
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body: unknown,
   isValid: (value: unknown) => value is T,
@@ -123,86 +135,15 @@ export async function postJson<T>(
   try {
     let response: Response;
     try {
-      response = await fetch(path, {
-        method: 'POST',
-        signal: controller.signal,
-        cache: 'no-store',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(body),
-      });
-    } catch (error) {
-      return fail(error, 'network', `Could not reach ${path}`);
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = await response.json();
-    } catch (error) {
-      if (!response.ok) {
-        throw new ApiError('http', `${path} returned HTTP ${response.status}`, response.status);
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      let payload: BodyInit | undefined;
+      if (body instanceof Blob) {
+        headers['Content-Type'] = body.type || 'application/octet-stream';
+        payload = body;
+      } else if (body !== undefined) {
+        headers['Content-Type'] = 'application/json';
+        payload = JSON.stringify(body);
       }
-      return fail(error, 'parse', `${path} returned a body that is not JSON`);
-    }
-
-    if (!response.ok) {
-      const detail = isPlainObject(parsed) && typeof parsed.error === 'string' ? parsed.error : undefined;
-      throw new ApiError('http', detail ?? `${path} returned HTTP ${response.status}`, response.status);
-    }
-
-    if (!isValid(parsed)) {
-      throw new ApiError('shape', `${path} returned an unexpected response shape`);
-    }
-    return parsed;
-  } finally {
-    window.clearTimeout(timer);
-    signal?.removeEventListener('abort', cancel);
-  }
-}
-
-/**
- * Send any method with either a JSON body or a raw binary body (an image).
- *
- * `postJson` covers the common case; this exists for PATCH/DELETE and for
- * sending a camera frame as `image/jpeg`. A rejected request answers
- * `{"error": "<reason>"}`, which becomes the ApiError's message.
- */
-export async function sendRequest<T>(
-  method: 'POST' | 'PATCH' | 'DELETE',
-  path: string,
-  body: { json: unknown } | { blob: Blob } | null,
-  isValid: (value: unknown) => value is T,
-  { signal, timeoutMs = REQUEST_TIMEOUT_MS }: RequestOptions = {},
-): Promise<T> {
-  const controller = new AbortController();
-  let timedOut = false;
-  const timer = window.setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
-  const cancel = () => controller.abort();
-  if (signal?.aborted) controller.abort();
-  signal?.addEventListener('abort', cancel, { once: true });
-
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  let payload: BodyInit | undefined;
-  if (body !== null && 'json' in body) {
-    headers['Content-Type'] = 'application/json';
-    payload = JSON.stringify(body.json);
-  } else if (body !== null) {
-    headers['Content-Type'] = body.blob.type || 'application/octet-stream';
-    payload = body.blob;
-  }
-
-  const fail = (error: unknown, kind: ApiErrorKind, message: string): never => {
-    if (signal?.aborted) throw error;
-    if (timedOut) throw new ApiError('timeout', `No response from ${path} within ${timeoutMs} ms`);
-    throw new ApiError(kind, message);
-  };
-
-  try {
-    let response: Response;
-    try {
       response = await fetch(path, {
         method,
         signal: controller.signal,
@@ -229,6 +170,7 @@ export async function sendRequest<T>(
       const detail = isPlainObject(parsed) && typeof parsed.error === 'string' ? parsed.error : undefined;
       throw new ApiError('http', detail ?? `${path} returned HTTP ${response.status}`, response.status);
     }
+
     if (!isValid(parsed)) {
       throw new ApiError('shape', `${path} returned an unexpected response shape`);
     }
