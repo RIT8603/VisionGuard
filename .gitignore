@@ -62,3 +62,6 @@ runs/
 # Large sample videos
 FindFace/samples/*.mp4
 !FindFace/samples/demo.mp4
+
+# Private keys (AWS key pairs etc.) must never be committed
+*.pem
