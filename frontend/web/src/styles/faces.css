@@ -415,3 +415,17 @@
     grid-row: 2;
   }
 }
+
+/* Search box above the user list (the base .faces-search style is in index.css). */
+.face-col .faces-search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+}
+
+/* Optional views the operator chose not to capture this time. */
+.face-pose-skipped .face-pose-name {
+  text-decoration: line-through;
+  opacity: 0.6;
+}

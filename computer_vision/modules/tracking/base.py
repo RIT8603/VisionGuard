@@ -33,6 +33,8 @@ DEFAULT_MIN_HITS = 2
 SLOW_FRAME_GAP_SEC = 0.16
 #: Weight of the newest frame gap in the running average.
 _GAP_SMOOTHING = 0.2
+#: ``context.metadata`` key holding tracks to draw but not to analyse.
+DISPLAY_COASTING_KEY = "display_coasting_tracks"
 
 
 class BaseTrackingModule(BaseAIModule):
@@ -52,6 +54,7 @@ class BaseTrackingModule(BaseAIModule):
           max_center_distance: 0.8       # 0 = off; keeps ids at a low frame rate
                                          # (applied only below ~6 fps)
           compact_ids: true              # number only confirmed tracks
+          display_coasting_seconds: 0.5  # keep drawing a briefly missed track
 
     Every track carries ``extra["travel"]``: how far it has moved from where
     it was first seen, in units of its own size. Analysis modules use it to
@@ -77,6 +80,13 @@ class BaseTrackingModule(BaseAIModule):
         self._max_center_distance = 0.0
         self._last_frame_ts: float | None = None
         self._frame_gap: float | None = None
+        # The detector misses a visible person on some frames (blur, a raised
+        # arm, someone passing in front). Measured on stairs/gate CCTV: half of
+        # those gaps last 2-3 frames and ~60% of the missing frames fall in
+        # gaps under 0.5 s. Such a track keeps being *drawn* (thin, marked "?")
+        # for this long; it is never published as a track, so counting, zones
+        # and re-id only ever see real observations.
+        self._display_coasting = float(self.params.get("display_coasting_seconds", 0.0))
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -143,6 +153,12 @@ class BaseTrackingModule(BaseAIModule):
         timed = self._tracker.timed
         tracks = [state.as_track(self.module_name, timed) for state in track_states]
         context.add_tracks(self.module_name, tracks)
+        if self._display_coasting > 0 and timed:
+            coasting = self._tracker.coasting(self._display_coasting)
+            if coasting:
+                context.metadata.setdefault(DISPLAY_COASTING_KEY, []).extend(
+                    state.as_track(self.module_name, timed) for state in coasting
+                )
 
         return self.make_result(
             context,

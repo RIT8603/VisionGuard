@@ -248,6 +248,23 @@ class IdentityStore:
             matched = (best_score - ranked[1][1]) >= margin
         return IdentityMatch(name=best_name, similarity=best_score, matched=matched)
 
+    def score_of(self, embedding: np.ndarray, name: str) -> float:
+        """Best similarity of ``embedding`` to one identity's templates (0 if unknown).
+
+        Lets a caller ask "does this still look like the person we named?"
+        without that question being decided by who else is enrolled.
+        """
+        vector = np.asarray(embedding, dtype=np.float32).ravel()
+        norm = float(np.linalg.norm(vector))
+        with self._lock:
+            matrix, groups = self._templates()
+        if matrix is None or norm <= 0 or matrix.shape[1] != vector.size:
+            return 0.0
+        for group_name, start, end in groups:
+            if group_name == name:
+                return float((matrix[start:end] @ (vector / norm)).max())
+        return 0.0
+
     def _templates(self) -> Tuple[Optional[np.ndarray], List[Tuple[str, int, int]]]:
         """The cached template matrix, rebuilt if the contents changed. Caller holds the lock.
 

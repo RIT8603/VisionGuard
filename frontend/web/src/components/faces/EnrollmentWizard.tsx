@@ -7,6 +7,8 @@ import { Panel } from '../ui/Panel';
 
 /** Delay between live-guide frames; one request is in flight at a time. */
 const ANALYZE_EVERY_MS = 600;
+/** Consecutive good readings of the same needed view before it is captured. */
+const STABLE_READINGS = 2;
 /** Pause after a capture or a refusal, so the person can move on. */
 const AFTER_CAPTURE_MS = 1200;
 const AFTER_REFUSAL_MS = 2000;
@@ -24,8 +26,9 @@ interface Props {
 
 /**
  * Multi-angle enrolment for one user. The camera watches the head pose and
- * captures each needed view itself once the server says the picture is good;
- * uploads are filed under whichever view they show. Order does not matter.
+ * captures each needed view itself once the server says the picture is good
+ * for a couple of readings in a row; uploads are filed under whichever view
+ * they show. Order does not matter. Optional views can be skipped.
  */
 export function EnrollmentWizard({ user, status, onUserChange }: Props) {
   const [cameraOn, setCameraOn] = useState(false);
@@ -33,11 +36,18 @@ export function EnrollmentWizard({ user, status, onUserChange }: Props) {
   const [message, setMessage] = useState<Message | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploads, setUploads] = useState<UploadResult[]>([]);
+  const [skipped, setSkipped] = useState<ReadonlySet<FacePose>>(new Set());
+  /** Auto-capture stops after an identity refusal until the operator resumes it. */
+  const [paused, setPaused] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  // The capture loop reads these, so it never acts on a stale user.
+  // The capture loop reads these, so it never acts on a stale user or choice.
   const userRef = useRef(user);
   userRef.current = user;
+  const skippedRef = useRef(skipped);
+  skippedRef.current = skipped;
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
 
   const support = cameraSupport();
   const canWrite = status.editable && status.models.ready;
@@ -45,14 +55,46 @@ export function EnrollmentWizard({ user, status, onUserChange }: Props) {
   const required = status.poses.filter((pose) => pose.required);
   const count = (pose: FacePose) => user.poses[pose] ?? 0;
 
-  /** Views still worth capturing: required ones first, then the optional ones. */
+  /** Views still worth capturing: required ones first, then the optional ones not skipped. */
   const neededPoses = (current: FaceUser): FacePose[] => {
     const short = (ids: FacePose[]) => ids.filter((id) => (current.poses[id] ?? 0) < perPose);
     const missingRequired = short(required.map((pose) => pose.id));
     if (missingRequired.length) return missingRequired;
-    return short(status.poses.filter((pose) => !pose.required).map((pose) => pose.id));
+    return short(
+      status.poses.filter((pose) => !pose.required && !skippedRef.current.has(pose.id)).map((pose) => pose.id),
+    );
   };
   const nextPose = status.poses.find((pose) => pose.id === neededPoses(user)[0]);
+
+  /**
+   * Store one capture. An identity refusal (409: another registered person's
+   * face, or not the same person as earlier captures) pauses auto-capture: it
+   * needs the operator, not a retry loop. Other refusals only back off.
+   */
+  const save = async (pose: FacePose, frame: Blob, signal?: AbortSignal): Promise<'saved' | 'refused'> => {
+    try {
+      const saved = await addFaceSample(userRef.current.id, pose, frame, { signal });
+      const justEnrolled = saved.user.enrolled && !userRef.current.enrolled;
+      onUserChange(saved.user);
+      setMessage({
+        tone: 'ok',
+        text: justEnrolled
+          ? 'Enrolled - front, left and right are captured. Continue for the optional up/down views, or press Done.'
+          : `Captured ${saved.pose} (quality ${saved.quality.toFixed(2)})`,
+      });
+      if (neededPoses(saved.user).length === 0) {
+        setCameraOn(false);
+        setMessage({ tone: 'ok', text: 'All views captured.' });
+      }
+      return 'saved';
+    } catch (caught) {
+      if (signal?.aborted) throw caught;
+      const error = toApiError(caught);
+      setMessage({ tone: 'crit', text: error.message });
+      if (error.status === 409) setPaused(true);
+      return 'refused';
+    }
+  };
 
   // ---- camera: open, guide, auto-capture ----
   useEffect(() => {
@@ -61,6 +103,8 @@ export function EnrollmentWizard({ user, status, onUserChange }: Props) {
     let timer = 0;
     let stopped = false;
     let pauseUntil = 0;
+    let stable = 0;
+    let stablePose: FacePose | null = null;
     const controller = new AbortController();
 
     const tick = async () => {
@@ -72,31 +116,15 @@ export function EnrollmentWizard({ user, status, onUserChange }: Props) {
           const result = await analyzeFace(frame, { signal: controller.signal });
           if (stopped) return;
           setReading(result);
-          const pose = result.face?.pose;
-          const wanted = neededPoses(userRef.current);
-          if (result.ok && pose && pose !== 'other' && wanted.includes(pose) && Date.now() >= pauseUntil) {
-            try {
-              const saved = await addFaceSample(userRef.current.id, pose, frame, { signal: controller.signal });
-              if (stopped) return;
-              const justEnrolled = saved.user.enrolled && !userRef.current.enrolled;
-              onUserChange(saved.user);
-              setMessage({
-                tone: 'ok',
-                text: justEnrolled
-                  ? 'Enrolled - front, left and right are captured. Continue for the optional up/down views, or press Done.'
-                  : `Captured ${saved.pose} (quality ${saved.quality.toFixed(2)})`,
-              });
-              pauseUntil = Date.now() + AFTER_CAPTURE_MS;
-              if (neededPoses(saved.user).length === 0) {
-                setCameraOn(false);
-                setMessage({ tone: 'ok', text: 'All views captured.' });
-                return;
-              }
-            } catch (caught) {
-              if (controller.signal.aborted) return;
-              setMessage({ tone: 'crit', text: toApiError(caught).message });
-              pauseUntil = Date.now() + AFTER_REFUSAL_MS;
-            }
+          const seen = result.face?.pose;
+          const pose = result.ok && seen && seen !== 'other' && neededPoses(userRef.current).includes(seen) ? seen : null;
+          stable = pose !== null && pose === stablePose ? stable + 1 : pose !== null ? 1 : 0;
+          stablePose = pose;
+          if (pose && stable >= STABLE_READINGS && Date.now() >= pauseUntil && !pausedRef.current) {
+            stable = 0;
+            const outcome = await save(pose, frame, controller.signal);
+            if (stopped) return;
+            pauseUntil = Date.now() + (outcome === 'saved' ? AFTER_CAPTURE_MS : AFTER_REFUSAL_MS);
           }
         }
       } catch (caught) {
@@ -140,8 +168,26 @@ export function EnrollmentWizard({ user, status, onUserChange }: Props) {
       stream?.getTracks().forEach((track) => track.stop());
       setReading(null);
     };
-    // Restarts only when the camera is switched on or off; the user is read via userRef.
+    // Restarts only when the camera is switched on or off; the rest is read via refs.
   }, [cameraOn]);
+
+  /** Take the requested view from the current frame now, without waiting for auto-capture. */
+  const captureNow = async () => {
+    const video = videoRef.current;
+    if (!nextPose || !video) return;
+    const frame = await captureFrame(video);
+    if (!frame) {
+      setMessage({ tone: 'warn', text: 'The camera has not produced a picture yet.' });
+      return;
+    }
+    setPaused(false);
+    setBusy(true);
+    try {
+      await save(nextPose.id, frame);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // ---- uploads ----
   const upload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -176,12 +222,21 @@ export function EnrollmentWizard({ user, status, onUserChange }: Props) {
     try {
       onUserChange(await clearFaceSamples(user.id, pose));
       setMessage(null);
+      setPaused(false);
     } catch (caught) {
       setMessage({ tone: 'crit', text: toApiError(caught).message });
     } finally {
       setBusy(false);
     }
   };
+
+  const toggleSkip = (pose: FacePose) =>
+    setSkipped((current) => {
+      const next = new Set(current);
+      if (next.has(pose)) next.delete(pose);
+      else next.add(pose);
+      return next;
+    });
 
   const box = reading?.face?.box;
   const boxTone = reading?.ok ? 'face-box-ok' : 'face-box-warn';
@@ -199,8 +254,10 @@ export function EnrollmentWizard({ user, status, onUserChange }: Props) {
       <ol className="face-poses">
         {status.poses.map((pose) => {
           const n = count(pose.id);
+          const isSkipped = skipped.has(pose.id);
+          const tone = n >= perPose ? 'face-pose-done' : n > 0 ? 'face-pose-part' : isSkipped ? 'face-pose-skipped' : undefined;
           return (
-            <li key={pose.id} className={n >= perPose ? 'face-pose-done' : n > 0 ? 'face-pose-part' : undefined}>
+            <li key={pose.id} className={tone}>
               <span className="face-pose-name">
                 {pose.id}
                 {!pose.required && <span className="muted"> (optional)</span>}
@@ -212,6 +269,11 @@ export function EnrollmentWizard({ user, status, onUserChange }: Props) {
               {canWrite && n > 0 && (
                 <button type="button" className="face-link" disabled={busy || cameraOn} onClick={() => void clear(pose.id)}>
                   Retake
+                </button>
+              )}
+              {canWrite && n === 0 && !pose.required && (
+                <button type="button" className="face-link" onClick={() => toggleSkip(pose.id)}>
+                  {isSkipped ? 'Unskip' : 'Skip'}
                 </button>
               )}
             </li>
@@ -247,6 +309,11 @@ export function EnrollmentWizard({ user, status, onUserChange }: Props) {
                 {reading && !reading.ok && reading.problems[0] && <span> - {reading.problems[0]}</span>}
                 {reading?.ok && reading.face?.pose && <span className="muted"> (seen: {reading.face.pose})</span>}
               </p>
+              {paused && (
+                <p className="face-message face-message-warn" role="status">
+                  Auto-capture is paused until you resume it.
+                </p>
+              )}
             </div>
           )}
 
@@ -264,10 +331,26 @@ export function EnrollmentWizard({ user, status, onUserChange }: Props) {
                 disabled={busy}
                 onClick={() => {
                   setMessage(null);
+                  setPaused(false);
                   setCameraOn(!cameraOn);
                 }}
               >
                 {cameraOn ? (user.enrolled ? 'Done' : 'Stop camera') : 'Start camera'}
+              </button>
+            )}
+            {cameraOn && (
+              <button
+                type="button"
+                className="summary-btn"
+                disabled={busy || !nextPose || !reading?.ok}
+                onClick={() => void captureNow()}
+              >
+                Capture now
+              </button>
+            )}
+            {cameraOn && paused && (
+              <button type="button" className="summary-btn summary-btn-quiet" onClick={() => setPaused(false)}>
+                Resume auto-capture
               </button>
             )}
             <label className={`summary-btn summary-btn-quiet face-upload${busy || cameraOn ? ' is-disabled' : ''}`}>

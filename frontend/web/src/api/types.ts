@@ -103,6 +103,10 @@ export type KnownEventType =
   | 'low_light_started'
   | 'low_light_ended'
   | 'weapon_detected'
+  | 'armed_person'
+  | 'fire_detected'
+  | 'smoke_detected'
+  | 'ppe_violation'
   | 'plate_read'
   | 'person_reidentified'
   | 'crowd_formed'
@@ -328,4 +332,53 @@ export interface UploadedVideo {
 
 export interface VideosResponse {
   videos: UploadedVideo[];
+}
+
+// ---------- reports (/api/reports/*) ----------
+
+export interface LiveCamera {
+  id: string;
+  name: string;
+  status: CameraStatus;
+  people_in_view: number;
+  recognised: string[];
+  unknown_faces: number;
+  spoof_faces: number;
+}
+
+export interface PersonInside {
+  identity: string;
+  since: string;
+  camera: string;
+}
+
+export interface LiveReport {
+  cameras: LiveCamera[];
+  people_in_view: number;
+  today?: {
+    entered: number;
+    exited: number;
+    inside: number;
+    people_inside: PersonInside[];
+    truncated: boolean;
+    by_type: Record<string, number>;
+  };
+}
+
+export interface LoggedEvent {
+  id: number;
+  camera: string;
+  timestamp: string;
+  event: string;
+  module: string;
+  severity: Severity;
+  track_id: number | null;
+  identity: string | null;
+  subject: Record<string, unknown>;
+  data: Record<string, unknown>;
+}
+
+export interface EventLogPage {
+  total: number;
+  events: LoggedEvent[];
 }

@@ -3,7 +3,7 @@ import { PLAN_SOURCE_LABEL, STATUS_LABEL, type CatalogModule } from '../../conte
 interface ModuleCardProps {
   module: CatalogModule;
   selected: boolean;
-  /** Every backend module it needs is running in the connected pipeline. */
+  /** Every backend module it needs was listed at startup by the followed camera. */
   running: boolean;
   onToggle: (id: string) => void;
 }
@@ -31,7 +31,12 @@ export function ModuleCard({ module, selected, running, onToggle }: ModuleCardPr
           </span>
         </span>
 
-        {running && <span className="module-running">Running now</span>}
+        {running && (
+          <span className="module-running" title="Reported at startup; this is not a detection or ongoing health check.">
+            Loaded for followed camera
+          </span>
+        )}
+        {module.requirement && <span className="module-card-note">Required: {module.requirement}.</span>}
         {module.planSource && (
           <span className="module-plan-source">{PLAN_SOURCE_LABEL[module.planSource]}</span>
         )}

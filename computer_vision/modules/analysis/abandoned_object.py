@@ -83,7 +83,10 @@ class AbandonedObjectModule(BaseAIModule):
         self._severity = parse_severity(self.params, Severity.WARNING)
         # Long memory on purpose: a person walking in front of a bag hides it
         # from the detector, and the clock should survive that.
-        self._memory: SubjectMemory[_Resting] = SubjectMemory(forget_seconds=10.0)
+        self._merge_bag_labels = bool(self.params.get("merge_bag_labels", False))
+        self._memory: SubjectMemory[_Resting] = SubjectMemory(
+            forget_seconds=positive_number(self.params, "forget_seconds", 10.0)
+        )
         self._total = 0
         self.log.info(
             "Ready: watching %s, abandoned after %.0fs unattended",
@@ -153,7 +156,11 @@ class AbandonedObjectModule(BaseAIModule):
         time someone walked by, and a busy corridor would never raise anything.
         """
         for old_key, state in self._memory.items():
-            if old_key == key or state.label != label:
+            if old_key == key:
+                continue
+            if state.label != label and not (
+                self._merge_bag_labels and {state.label, label} <= {"backpack", "handbag", "suitcase"}
+            ):
                 continue
             last_seen = self._memory.last_seen(old_key)
             if last_seen is None or last_seen >= now:

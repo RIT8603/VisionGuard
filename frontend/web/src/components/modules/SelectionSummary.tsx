@@ -22,7 +22,7 @@ function toConfigYaml(keys: string[], setupKeys: ReadonlySet<string>): string {
   const lines = ['modules:'];
   for (const key of keys) {
     lines.push(`  ${key}:`, '    enabled: true');
-    if (setupKeys.has(key)) lines.push('    # requires setup: model path (see README)');
+    if (setupKeys.has(key)) lines.push('    # part of a feature requiring setup; see requirements below');
   }
   return lines.join('\n');
 }
@@ -61,11 +61,11 @@ export function SelectionSummary({ selected, onClear }: SelectionSummaryProps) {
         <>
           {keys.length > 0 && (
             <section className="summary-block">
-              <h3>Applied to the backend</h3>
+              <h3>Requested backend modules</h3>
               <p className="summary-help">
-                This selection is sent to the running backend automatically, and written into{' '}
-                <code>configs/config.yaml</code> so it survives a manual restart too. Required
-                dependencies are included below for reference, or to set up another run by hand.
+                This selection requests a backend restart. Check camera status to confirm it was
+                applied successfully. Accepted changes are saved in <code>configs/config.yaml</code>.
+                Required dependencies are included below for reference.
               </p>
               <pre className="summary-yaml mono">{yaml}</pre>
               <button type="button" className="summary-btn" onClick={copy}>

@@ -267,6 +267,49 @@ def test_same_face_cannot_be_registered_under_two_names(svc):
     assert exc.value.status == 409
 
 
+def _mix(a: np.ndarray, b: np.ndarray, wa: float, wb: float) -> np.ndarray:
+    vec = wa * a + wb * b
+    return vec / np.linalg.norm(vec)
+
+
+def test_a_capture_closer_to_its_own_user_is_kept_even_if_it_resembles_someone(svc):
+    # With many people enrolled, some stranger's template crosses the threshold
+    # by chance; that alone must not block a genuine capture.
+    asha = svc.create_user({"name": "Asha"})
+    ravi = svc.create_user({"name": "Ravi"})
+    enrol(svc, ravi["id"], "front", unit(2))
+    enrol(svc, asha["id"], "front", unit(1))
+    result = enrol(svc, asha["id"], "left", _mix(unit(1), unit(2), 0.85, 0.5))  # 0.86 Asha, 0.51 Ravi
+    assert result["user"]["poses"] == {"front": 1, "left": 1}
+
+
+def test_a_capture_closer_to_someone_else_is_refused(svc):
+    asha = svc.create_user({"name": "Asha"})
+    ravi = svc.create_user({"name": "Ravi"})
+    enrol(svc, ravi["id"], "front", unit(2))
+    enrol(svc, asha["id"], "front", unit(1))
+    with pytest.raises(FaceServiceError, match="already registered as 'Ravi'"):
+        enrol(svc, asha["id"], "left", _mix(unit(1), unit(2), 0.5, 0.85))  # 0.51 Asha, 0.86 Ravi
+
+
+def test_a_first_capture_that_only_resembles_someone_is_kept(svc):
+    ravi = svc.create_user({"name": "Ravi"})
+    asha = svc.create_user({"name": "Asha"})
+    enrol(svc, ravi["id"], "front", unit(2))
+    result = enrol(svc, asha["id"], "front", _mix(unit(1), unit(2), 0.85, 0.5))  # 0.51 to Ravi
+    assert result["user"]["poses"] == {"front": 1}
+
+
+def test_a_first_capture_of_someone_already_registered_names_the_closest_match(svc):
+    ravi = svc.create_user({"name": "Ravi"})
+    mohan = svc.create_user({"name": "Mohan"})
+    asha = svc.create_user({"name": "Asha"})
+    enrol(svc, ravi["id"], "front", unit(2))
+    enrol(svc, mohan["id"], "front", _mix(unit(2), unit(3), 0.5, 0.866))  # Ravi-like, 0.5
+    with pytest.raises(FaceServiceError, match="already registered as 'Ravi'"):
+        enrol(svc, asha["id"], "front", _mix(unit(2), unit(1), 0.9, 0.3))  # 0.95 Ravi
+
+
 def test_pose_capture_limit(svc):
     user = svc.create_user({"name": "Asha"})
     for _ in range(MAX_SAMPLES_PER_POSE):
@@ -380,7 +423,12 @@ class CountingEmbedder(FakeEmbedder):
 def make_module(embedder: FakeEmbedder, **params):
     from computer_vision.modules.recognition.face_recognition import FaceRecognitionModule
 
-    module = FaceRecognitionModule({"margin": 0.0, "embed_interval": 1, **params})
+    # Frames here are 1 s apart: the timed rules (periodic revalidation, body
+    # gap re-verification) are switched off and tested on their own below.
+    module = FaceRecognitionModule({
+        "margin": 0.0, "embed_interval": 1,
+        "revalidate_seconds": 1e9, "body_gap_reverify_seconds": 1e9, **params,
+    })
     module._embedder = embedder
     module._store = get_shared_store()
     return module
@@ -391,7 +439,9 @@ _FLAT = np.full((500, 500, 3), 128, dtype=np.uint8)
 BOX = (100, 100, 220, 240)  # 120 px wide: a good-sized face
 SMALL = (100, 100, 150, 150)  # a far-away, lower-scoring face
 BODY = (40, 40, 330, 490)  # a person box containing every face box above
-LOOSE = {"min_quality": 0.0, "min_sharpness": 0, "min_face_size": 0}
+# small_face_size 0: these tests are about snapshots and naming, not the
+# small-CCTV-face averaging (covered in test_face_recognition.TestSmallFaces).
+LOOSE = {"min_quality": 0.0, "min_sharpness": 0, "min_face_size": 0, "small_face_size": 0}
 
 
 def frame_with_face(frame_id, box=BOX, *, view="front", frame=_SHARP, persons=(), faces=True):
@@ -422,7 +472,11 @@ def test_module_labels_a_registered_face_by_name():
     replace_shared_store([("Asha", [unit(1)])])
     embedder = FakeEmbedder()
     embedder.vector = unit(1)
-    det = run(make_module(embedder), frame_with_face(1))
+    module = make_module(embedder)
+    # confirm_matches (2): one match is not enough, however sharp the face.
+    first = run(module, frame_with_face(1))
+    assert first.label == "checking" and first.extra["state"] == "checking"
+    det = run(module, frame_with_face(2))
     assert det.label == "Asha" and det.extra["recognised"] is True
 
 
@@ -480,11 +534,12 @@ def test_a_known_name_is_kept_when_a_worse_frame_cannot_say():
     module = make_module(embedder)
 
     embedder.vector = unit(1)
-    assert run(module, frame_with_face(1)).label == "Asha"
+    run(module, frame_with_face(1))
+    assert run(module, frame_with_face(2)).label == "Asha"
     calls = embedder.calls
 
     # Same-quality frames do not re-run the recogniser at all.
-    for frame_id in range(2, 6):
+    for frame_id in range(3, 6):
         assert run(module, frame_with_face(frame_id)).label == "Asha"
     assert embedder.calls == calls
 
@@ -500,12 +555,13 @@ def test_a_clearly_better_snapshot_is_checked_again():
     embedder.vector = unit(1)
 
     # The same person (one body track) first far away, then much closer.
-    assert run(module, frame_with_face(1, box=SMALL, persons=[(1, BODY)])).label == "Asha"
+    run(module, frame_with_face(1, box=SMALL, persons=[(1, BODY)]))
+    assert run(module, frame_with_face(2, box=SMALL, persons=[(1, BODY)])).label == "Asha"
     before = embedder.calls
-    run(module, frame_with_face(2, box=BOX, persons=[(1, BODY)]))  # a better snapshot
+    run(module, frame_with_face(3, box=BOX, persons=[(1, BODY)]))  # a better snapshot
     assert embedder.calls == before + 1
     # And a snapshot no better than that one is not checked again.
-    run(module, frame_with_face(3, box=BOX, persons=[(1, BODY)]))
+    run(module, frame_with_face(4, box=BOX, persons=[(1, BODY)]))
     assert embedder.calls == before + 1
 
 
@@ -515,13 +571,14 @@ def test_replacing_a_name_takes_repeated_better_evidence():
     module = make_module(embedder, **LOOSE)
 
     embedder.vector = unit(1)
-    assert run(module, frame_with_face(1, box=SMALL, persons=[(1, BODY)])).label == "Asha"
+    run(module, frame_with_face(1, box=SMALL, persons=[(1, BODY)]))
+    assert run(module, frame_with_face(2, box=SMALL, persons=[(1, BODY)])).label == "Asha"
 
     # One better frame that says "Ravi" is not enough to rename the subject...
     embedder.vector = unit(2)
-    assert run(module, frame_with_face(2, box=BOX, persons=[(1, BODY)])).label == "Asha"
+    assert run(module, frame_with_face(3, box=BOX, persons=[(1, BODY)])).label == "Asha"
     # ...a second, better one is.
-    assert run(module, frame_with_face(3, box=(100, 100, 300, 360), persons=[(1, BODY)])).label == "Ravi"
+    assert run(module, frame_with_face(4, box=(100, 100, 300, 360), persons=[(1, BODY)])).label == "Ravi"
 
 
 def test_name_follows_the_person_track_when_the_face_is_lost():
@@ -531,12 +588,17 @@ def test_name_follows_the_person_track_when_the_face_is_lost():
     module = make_module(embedder)
     body = (60, 60, 300, 480)
 
-    det = run(module, frame_with_face(1, persons=[(3, body)]))
+    run(module, frame_with_face(1, persons=[(3, body)]))
+    det = run(module, frame_with_face(2, persons=[(3, body)]))
     assert det.label == "Asha" and det.extra["person_track_id"] == 3
 
-    # The person turns away: no face detected for a while. The subject lives on.
-    for frame_id in range(2, 8):
-        module.process(frame_with_face(frame_id, persons=[(3, body)], faces=False))
+    # The person turns away: no face detected for a while. The subject lives
+    # on, and the body box keeps showing the name.
+    for frame_id in range(3, 8):
+        ctx = frame_with_face(frame_id, persons=[(3, body)], faces=False)
+        module.process(ctx)
+        assert ctx.get_tracks("person_tracking")[0].extra["identity"] == "Asha"
+        assert ctx.metadata["person_identities"][3] == {"name": "Asha", "state": "recognised"}
 
     # They come back side-on (too turned to recognise): still Asha.
     embedder.vector = unit(9)
@@ -563,10 +625,14 @@ def test_two_people_keep_their_own_names():
         [Track(1, "person", BBox(30, 30, 200, 480)), Track(2, "person", BBox(280, 30, 450, 480))],
     )
 
-    vectors = iter([unit(1), unit(2)])
+    vectors = iter([unit(1), unit(2), unit(1), unit(2)])
     embedder.embed = lambda frame, face: next(vectors)  # type: ignore[method-assign]
     module.process(ctx)
-    assert [d.label for d in ctx.get_detections("face_recognition")] == ["Asha", "Ravi"]
+    again = FrameContext(frame=_SHARP, frame_id=2, source_id="t", monotonic_ts=2.0)
+    again.add_detections("face_detection", faces)
+    again.add_tracks("person_tracking", ctx.get_tracks("person_tracking"))
+    module.process(again)
+    assert [d.label for d in again.get_detections("face_recognition")] == ["Asha", "Ravi"]
 
 
 def test_face_outside_every_body_falls_back_to_face_tracking():
@@ -574,7 +640,8 @@ def test_face_outside_every_body_falls_back_to_face_tracking():
     embedder = FakeEmbedder()
     embedder.vector = unit(1)
     module = make_module(embedder)
-    det = run(module, frame_with_face(1, persons=[(9, (400, 300, 480, 490))]))
+    run(module, frame_with_face(1, persons=[(9, (400, 300, 480, 490))]))
+    det = run(module, frame_with_face(2, persons=[(9, (400, 300, 480, 490))]))
     assert det.label == "Asha" and "person_track_id" not in det.extra
 
 
@@ -695,3 +762,22 @@ def test_identify_and_accuracy_over_http(client, svc):
     client.post(f"/api/face/users/{user['id']}/samples?pose=front", content=jpeg())
     assert client.post("/api/face/identify", content=jpeg()).json()["decision"] == "Asha"
     assert client.get("/api/face/accuracy").json()["identities"] == 1
+
+
+def test_a_second_face_of_any_size_is_refused(svc):
+    """Strictly one face: a small one in the background used to be ignored."""
+    user = svc.create_user({"name": "Asha"})
+    svc._detector.show("front")
+    svc._detector.faces.append(RawFace(0.9, (10.0, 10.0, 40.0, 40.0), landmarks("front")))
+    with pytest.raises(FaceServiceError, match="More than one face"):
+        svc.add_sample(user["id"], "front", jpeg())
+
+
+def test_a_capture_only_loosely_like_the_user_is_refused(svc):
+    # 0.35 to the user's first capture: cleared the old 0.20 floor, which let
+    # three in four captures of a different person through.
+    user = svc.create_user({"name": "Asha"})
+    enrol(svc, user["id"], "front", unit(1))
+    loose = _mix(unit(1), unit(5), 0.35, 0.937)
+    with pytest.raises(FaceServiceError, match="does not match the earlier captures"):
+        enrol(svc, user["id"], "left", loose)

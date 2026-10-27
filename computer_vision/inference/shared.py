@@ -206,6 +206,10 @@ class SharedDetector(DetectorBackend):
     def description(self) -> str:
         return f"{self._inner.description} (shared x{self._users})"
 
+    @property
+    def class_names(self):
+        return self._inner.class_names
+
     def stats(self) -> Dict[str, int]:
         return {
             "users": self._users,

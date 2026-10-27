@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { FacePoseInfo, FaceUser } from '../../api/faceTypes';
 import { Panel } from '../ui/Panel';
 
@@ -18,18 +19,38 @@ function Badge({ user }: { user: FaceUser }) {
 
 /** Everyone in the registry. Selecting a user opens their details and enrolment. */
 export function UserList({ users, poses, selectedId, editable, onSelect, onAdd }: Props) {
+  const [filter, setFilter] = useState('');
+  const query = filter.trim().toLowerCase();
+  const shown = users.filter(
+    (user) =>
+      query === '' ||
+      [user.name, user.employee_id, user.role, user.department].some((v) => v.toLowerCase().includes(query)),
+  );
+
   return (
-    <Panel title="Users" aside={`${users.length}`}>
+    <Panel title="Users" aside={query ? `${shown.length} of ${users.length}` : `${users.length}`}>
       {editable && (
         <button type="button" className="summary-btn face-add" onClick={onAdd}>
           Add user
         </button>
       )}
+      {users.length > 0 && (
+        <input
+          type="search"
+          className="faces-search"
+          placeholder="Search name, ID, role…"
+          aria-label="Search users"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+        />
+      )}
       {users.length === 0 ? (
         <p className="empty">No one is registered yet.</p>
+      ) : shown.length === 0 ? (
+        <p className="empty">No users match that search.</p>
       ) : (
         <ul className="face-users">
-          {users.map((user) => (
+          {shown.map((user) => (
             <li key={user.id}>
               <button
                 type="button"

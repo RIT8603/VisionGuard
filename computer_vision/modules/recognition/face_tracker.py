@@ -40,6 +40,14 @@ def box_iou(a: np.ndarray, b: np.ndarray) -> float:
     return float(inter / union) if union > 0 else 0.0
 
 
+def _center_gap(a: np.ndarray, b: np.ndarray) -> float:
+    """Distance between box centres, in units of the larger box side."""
+    side = max(a[2] - a[0], a[3] - a[1], b[2] - b[0], b[3] - b[1], 1.0)
+    dx = (a[0] + a[2] - b[0] - b[2]) / 2
+    dy = (a[1] + a[3] - b[1] - b[3]) / 2
+    return float((dx * dx + dy * dy) ** 0.5 / side)
+
+
 @dataclass
 class FaceTrack:
     id: int
@@ -50,7 +58,9 @@ class FaceTrack:
     velocity: np.ndarray = field(default_factory=lambda: np.zeros(4, dtype=np.float32))
 
     def predicted(self, frame_id: int) -> np.ndarray:
-        return self.bbox + self.velocity * (frame_id - self.last_frame)
+        # A few frames of coasting through a missed detection; further than
+        # that the velocity estimate is a guess and the box would fly off.
+        return self.bbox + self.velocity * min(frame_id - self.last_frame, 8)
 
 
 class FaceTracker:
@@ -61,7 +71,11 @@ class FaceTracker:
         overlap_threshold: float = 0.25,
         miss_interval: float = 1.0,
         max_tracks: int = 64,
+        center_gate: float = 0.0,
     ) -> None:
+        #: Max centre distance, in units of the larger box side, for linking
+        #: boxes that no longer overlap enough. 0 = IoU only (original behaviour).
+        self.center_gate = float(center_gate)
         self.overlap_threshold = float(overlap_threshold)
         self.miss_interval = float(miss_interval)
         self.max_tracks = int(max_tracks)
@@ -96,6 +110,31 @@ class FaceTracker:
             used_tracks.add(ti)
             self._extend(tracks[ti], dets[di], frame_id, t)
             ids[di] = tracks[ti].id
+
+        # Small faces: a few pixels of jitter drops the IoU of a 12 px box
+        # below the threshold, so the track would split. Whatever is still
+        # unmatched is linked by centre distance (nearest first) instead.
+        if self.center_gate > 0:
+            loose = sorted(
+                (
+                    (d, ti, di)
+                    for ti, track in enumerate(tracks)
+                    if ti not in used_tracks
+                    for di, det in enumerate(dets)
+                    if ids[di] == -1
+                    # Jitter makes the velocity estimate overshoot, so a tiny
+                    # face may be nearer to where it was than to where it was
+                    # predicted: accept either.
+                    for d in [min(_center_gap(track.predicted(frame_id), det), _center_gap(track.bbox, det))]
+                    if d <= self.center_gate
+                ),
+            )
+            for _, ti, di in loose:
+                if ti in used_tracks or ids[di] != -1:
+                    continue
+                used_tracks.add(ti)
+                self._extend(tracks[ti], dets[di], frame_id, t)
+                ids[di] = tracks[ti].id
 
         for di, det in enumerate(dets):
             if ids[di] != -1 or len(self.active) >= self.max_tracks:

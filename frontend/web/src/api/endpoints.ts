@@ -14,6 +14,8 @@ import {
   isVideosResponse,
 } from './guards';
 import type {
+  EventLogPage,
+  LiveReport,
   SetSettingsResponse,
   SettingsResponse,
   AckAllResponse,
@@ -41,6 +43,9 @@ export const ENDPOINTS = {
   alerts: '/api/alerts',
   settings: '/api/settings',
   videos: '/api/videos',
+  face: '/api/face',
+  view: '/api/view',
+  reports: '/api/reports',
 } as const;
 
 /** `?camera=<id>` selects a camera; without it the backend answers for its first. */
@@ -207,4 +212,78 @@ export function uploadVideo(
     signal?.addEventListener('abort', () => xhr.abort(), { once: true });
     xhr.send(file);
   });
+}
+
+// ---------- view options ----------
+
+export interface ViewOptions {
+  /** Glowing trail and sparkles tracing how tracked people move. */
+  magic_effect: boolean;
+}
+
+const isViewOptions = (value: unknown): value is ViewOptions =>
+  typeof value === 'object' && value !== null && typeof (value as ViewOptions).magic_effect === 'boolean';
+
+export function getViewOptions(signal?: AbortSignal): Promise<ViewOptions> {
+  return getJson(ENDPOINTS.view, isViewOptions, { signal });
+}
+
+export function setMagicEffect(on: boolean, signal?: AbortSignal): Promise<ViewOptions> {
+  return postJson(ENDPOINTS.view, { magic_effect: on }, isViewOptions, { signal });
+}
+
+// ---------- reports ----------
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+export function getLiveReport(signal?: AbortSignal): Promise<LiveReport> {
+  return getJson(
+    `${ENDPOINTS.reports}/live`,
+    (v): v is LiveReport => isObj(v) && Array.isArray(v.cameras),
+    { signal },
+  );
+}
+
+export interface EventLogFilters {
+  camera?: string;
+  event?: string;
+  identity?: string;
+  day?: string;
+  limit?: number;
+  offset?: number;
+}
+
+function reportQuery(filters: EventLogFilters): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '' && value !== null) params.set(key, String(value));
+  }
+  const text = params.toString();
+  return text ? `?${text}` : '';
+}
+
+export function getEventLog(
+  filters: EventLogFilters,
+  signal?: AbortSignal,
+): Promise<EventLogPage> {
+  return getJson(
+    `${ENDPOINTS.reports}/events${reportQuery(filters)}`,
+    (v): v is EventLogPage => isObj(v) && typeof v.total === 'number' && Array.isArray(v.events),
+    { signal },
+  );
+}
+
+/** A link that downloads the filtered event log as CSV. */
+export function eventLogCsvUrl(filters: EventLogFilters): string {
+  const { limit: _limit, offset: _offset, ...rest } = filters;
+  return `${ENDPOINTS.reports}/events.csv${reportQuery(rest)}`;
+}
+
+/** A link that downloads a day's attendance (first entry, last exit) as CSV. */
+export function attendanceCsvUrl(day?: string): string {
+  return `${ENDPOINTS.reports}/attendance.csv${reportQuery({ day })}`;
+}
+
+export function snapshotImageUrl(name: string): string {
+  return `/api/snapshots/${encodeURIComponent(name)}`;
 }
