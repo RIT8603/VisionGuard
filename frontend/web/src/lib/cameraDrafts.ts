@@ -38,7 +38,9 @@ export function blankDraft(): CameraDraft {
     youtubeUrl: '',
     deviceId: '0',
     path: '',
-    loop: false,
+    // A monitoring dashboard should keep watching: a video file restarts when
+    // it ends instead of stopping its camera. Untick for a one-off analysis.
+    loop: true,
     ownModules: false,
     moduleIds: [],
   };

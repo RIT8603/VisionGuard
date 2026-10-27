@@ -88,6 +88,8 @@ BUILTIN_MODULES: Dict[str, str] = {
     "gate_counter": "computer_vision.modules.analysis.gate:GateCounterModule",
     "abandoned_object": "computer_vision.modules.analysis.abandoned_object:AbandonedObjectModule",
     "inventory_monitoring": "computer_vision.modules.analysis.inventory:InventoryMonitoringModule",
+    # Needs ppe_detection (custom weights) and person_tracking.
+    "ppe_violation": "computer_vision.modules.analysis.ppe_violation:PPEViolationModule",
     # -- Weapons: stock COCO classes (knife, bat, scissors); guns need custom weights --
     "weapon_detection": "computer_vision.modules.detection.weapon:WeaponDetectionModule",
     # -- Identification beyond faces. Personal data: off unless enabled. --

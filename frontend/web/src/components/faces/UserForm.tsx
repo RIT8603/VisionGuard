@@ -95,6 +95,7 @@ export function UserForm({ user, editable, onSaved, onDeleted, onCancel }: Props
                 {key === 'name' && ' (required, unique)'}
               </label>
               {key === 'notes' ? <textarea rows={2} {...props} /> : <input type="text" required={key === 'name'} {...props} />}
+              {key === 'name' && <p className="field-help">Shown on the live video when this person is recognised.</p>}
             </div>
           );
         })}

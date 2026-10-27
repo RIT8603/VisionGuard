@@ -130,7 +130,8 @@ them has not been measured here.
 | `face_detection_yunet_2023mar.onnx` (~340 KB) | `face/` | [opencv_zoo/face_detection_yunet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) |
 | `face_recognition_sface_2021dec.onnx` (~37 MB) | `face/` | [opencv_zoo/face_recognition_sface](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface) |
 | `person_reid_youtu_2021nov.onnx` (107 MB) | `reid/` | [opencv_zoo/person_reid_youtureid](https://github.com/opencv/opencv_zoo/tree/main/models/person_reid_youtureid) — SHA-256 `0579683334d4b9440221606dcb461656dd0dc64143b18f48faedaced9b4f580d` |
-| PPE / fire / smoke / firearm weights | `custom/` | trained by you — no stock model has these classes |
+| PPE helmet/vest weights | `custom/` | Configured SafetyVision v2 checkpoint; provenance and limits in `custom/README.md` |
+| fire / smoke / other custom weights | `custom/` | Supply a model trained for its configured classes; stock COCO does not contain fire/smoke |
 
 Enabling a module without its model fails at startup with the URL, rather than
 running and silently detecting nothing.

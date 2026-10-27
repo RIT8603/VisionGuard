@@ -460,3 +460,71 @@ class TestFullPipeline:
         counts = [len(ctx.get_tracks("person_tracking")) for ctx in contexts]
         assert counts[:3] == [1, 1, 1]
         assert counts[-1] == 0
+
+
+# --------------------------------------------------------------------------- #
+# CCTV continuity: jittery boxes, weak frames, brief misses
+# --------------------------------------------------------------------------- #
+
+class TestContinuity:
+    def test_a_box_that_jitters_back_keeps_its_id(self):
+        """Velocity from one jump overshoots; the person is still where they were."""
+        tracker = IoUTracker(min_hits=1, iou_threshold=0.3)
+        tracker.update([det(100, 100, 140, 220)], timestamp=0.0)
+        tracker.update([det(120, 100, 160, 220)], timestamp=0.04)   # jitter right
+        tracks = tracker.update([det(100, 100, 140, 220)], timestamp=0.08)  # and back
+        assert [t.track_id for t in tracks] == [1]
+
+    def test_a_low_score_box_continues_a_confirmed_track_but_never_starts_one(self):
+        tracker = IoUTracker(min_hits=2)
+        for k in range(3):
+            tracker.update([det(100, 100, 140, 220)], timestamp=k * 0.04)
+        weak = [det(101, 100, 141, 220, conf=0.15)]
+        tracks = tracker.update([], candidates=weak, timestamp=0.12)
+        assert [t.track_id for t in tracks] == [1]
+        # A weak box where nobody is tracked creates nothing.
+        assert tracker.update([], candidates=[det(400, 100, 440, 220, conf=0.15)], timestamp=0.16) == []
+
+    def test_a_briefly_missed_person_is_kept_for_drawing_only(self):
+        module = build_module(min_hits=1, display_coasting_seconds=0.5)
+        for k in range(3):
+            ctx = context_with([det(100, 100, 140, 220)], frame_id=k)
+            ctx.monotonic_ts = k * 0.04
+            module.process(ctx)
+        missed = context_with([], frame_id=3)
+        missed.monotonic_ts = 0.12
+        module.process(missed)
+        assert missed.get_tracks("person_tracking") == []            # analysis sees nothing
+        drawn = missed.metadata["display_coasting_tracks"]
+        assert [t.track_id for t in drawn] == [1] and drawn[0].time_since_update > 0
+
+    def test_the_drawn_box_goes_once_the_person_is_gone_longer(self):
+        module = build_module(min_hits=1, display_coasting_seconds=0.5)
+        for k in range(3):
+            ctx = context_with([det(100, 100, 140, 220)], frame_id=k)
+            ctx.monotonic_ts = k * 0.04
+            module.process(ctx)
+        late = context_with([], frame_id=30)
+        late.monotonic_ts = 0.08 + 0.6
+        module.process(late)
+        assert late.metadata.get("display_coasting_tracks", []) == []
+
+    def test_display_coasting_is_off_by_default(self):
+        module = build_module(min_hits=1)
+        ctx = context_with([det(100, 100, 140, 220)]); ctx.monotonic_ts = 0.0
+        module.process(ctx)
+        missed = context_with([], frame_id=2); missed.monotonic_ts = 0.04
+        module.process(missed)
+        assert "display_coasting_tracks" not in missed.metadata
+
+
+def test_drawing_includes_briefly_missed_tracks():
+    from computer_vision.core.context import Track
+    from computer_vision.utils.annotate import tracks_to_draw
+
+    ctx = context_with([])
+    live = Track(track_id=1, label="person", bbox=BBox(0, 0, 10, 20), confidence=0.9)
+    ctx.add_tracks("person_tracking", [live])
+    ghost = Track(track_id=2, label="person", bbox=BBox(20, 0, 30, 20), confidence=0.9, time_since_update=3)
+    ctx.metadata["display_coasting_tracks"] = [ghost]
+    assert [t.track_id for t in tracks_to_draw(ctx)] == [1, 2]

@@ -30,6 +30,7 @@ from computer_vision.utils.annotate import (
     draw_hud,
     draw_overlays,
     draw_tracks,
+    tracks_to_draw,
     track_names,
 )
 from computer_vision.utils.logger import get_logger
@@ -167,7 +168,7 @@ class WindowSink(BaseOutputSink):
             # Tracks first, then only the detections nobody turned into tracks,
             # so a tracked person gets one box with an id rather than two.
             draw_detections(frame, untracked_detections(context))
-            draw_tracks(frame, context.get_tracks(), track_names(context.get_detections("face_recognition")))
+            draw_tracks(frame, tracks_to_draw(context), track_names(context.get_detections("face_recognition")))
 
         if self._config.show_hud:
             draw_hud(frame, self._hud_lines(context, stats))

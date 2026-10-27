@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { toApiError } from '../../api/client';
+import { setModules } from '../../api/endpoints';
 import type { FaceStatus, FaceUser } from '../../api/faceTypes';
 import { getFaceStatus, listFaceUsers } from '../../api/faces';
+import { PATHS } from '../../app/paths';
 import { EnrollmentWizard } from '../../components/faces/EnrollmentWizard';
 import { RecognitionCheck } from '../../components/faces/RecognitionCheck';
 import { RegistryStatus } from '../../components/faces/RegistryStatus';
 import { UserForm } from '../../components/faces/UserForm';
 import { UserList } from '../../components/faces/UserList';
 import { usePageVisible } from '../../hooks/usePageVisible';
+import { usePipeline } from '../../state/PipelineProvider';
 
 /** null = nothing open; 'new' = the add-user form; a number = that user. */
 type Selection = null | 'new' | number;
@@ -50,6 +54,31 @@ export function FacesPage() {
   const selected = typeof selection === 'number' ? users.find((user) => user.id === selection) ?? null : null;
   const editable = status?.editable ?? false;
 
+  // Are the two modules that act on this registry actually running?
+  const { status: pipeline } = usePipeline();
+  const [enabling, setEnabling] = useState<'idle' | 'applying' | 'error'>('idle');
+  const [enableError, setEnableError] = useState<string | null>(null);
+  const enabledModules = new Set(pipeline.data?.info.modules.map((m) => m.name) ?? []);
+  const detectionOn = enabledModules.has('face_detection');
+  const recognitionOn = enabledModules.has('face_recognition');
+  const pipelineKnown = pipeline.data !== null;
+
+  // Turn the two modules on without leaving the page. The backend rebuilds the
+  // pipeline in the background; the banner disappears once status reports them.
+  const enableRecognition = async () => {
+    setEnabling('applying');
+    setEnableError(null);
+    try {
+      const wanted = new Set(enabledModules);
+      wanted.add('face_detection');
+      wanted.add('face_recognition');
+      await setModules([...wanted]);
+    } catch (caught) {
+      setEnabling('error');
+      setEnableError(toApiError(caught).message);
+    }
+  };
+
   return (
     <>
       <title>Face Registry · VisionGuard</title>
@@ -76,6 +105,36 @@ export function FacesPage() {
         )}
         {status && !editable && (
           <p className="page-meta mono">Read-only for this run (dashboard.allow_face_edit: false).</p>
+        )}
+        {!status && !loadError && <p className="empty">Loading the registry…</p>}
+
+        {pipelineKnown && (!detectionOn || !recognitionOn) && (
+          <div className="notice notice-info faces-notice" role="status">
+            <span className="notice-word">Live off</span>
+            <div className="notice-body">
+              Live recognition is <strong>off</strong>: {!detectionOn && 'face_detection'}
+              {!detectionOn && !recognitionOn && ' and '}
+              {!recognitionOn && 'face_recognition'} {detectionOn !== recognitionOn ? 'is' : 'are'} not
+              enabled. Users can still be registered now.{' '}
+              <Link to={PATHS.portal.modules}>Modules page</Link> has the full list.
+              <div className="faces-notice-actions">
+                <button
+                  type="button"
+                  className="summary-btn"
+                  disabled={enabling === 'applying'}
+                  onClick={() => void enableRecognition()}
+                >
+                  {enabling === 'applying' ? 'Applying…' : 'Enable live recognition'}
+                </button>
+                {enabling === 'applying' && (
+                  <span className="field-help">
+                    The pipeline is restarting with face recognition; this takes a few seconds.
+                  </span>
+                )}
+                {enableError && <span className="field-problem">{enableError}</span>}
+              </div>
+            </div>
+          </div>
         )}
 
         {status && (

@@ -204,9 +204,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         prog="evaluate_recognition",
         description="Measure face recognition accuracy on labelled images.",
     )
-    parser.add_argument("--faces", required=True, help="Directory of <person>/<images>")
-    parser.add_argument("--detector", required=True, help="YuNet ONNX path")
-    parser.add_argument("--embedder", required=True, help="SFace ONNX path")
+    parser.add_argument("--faces", help="Directory of <person>/<images>")
+    parser.add_argument("--detector", help="YuNet ONNX path")
+    parser.add_argument("--embedder", help="SFace ONNX path")
+    parser.add_argument("--registry", help="Read-only existing face registry database")
+    parser.add_argument("--photo-manifest", help="Labelled face-photo export manifest.csv; diagnostic, not held-out footage")
+    parser.add_argument("--config", default="configs/config.yaml")
+    parser.add_argument("--json-output", help="Registry diagnostic report path")
     parser.add_argument(
         "--enroll", type=int, default=2, help="Images per person to enrol (default 2)"
     )
@@ -219,6 +223,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--save-store", help="Write the enrolled store here")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
+
+    if args.registry:
+        if not args.photo_manifest or not args.json_output:
+            parser.error('--registry needs --photo-manifest and --json-output')
+        return evaluate_registry_photos(args.registry, args.photo_manifest, args.config, args.json_output)
+    if not args.faces or not args.detector or not args.embedder:
+        parser.error('--faces, --detector and --embedder are required without --registry')
 
     from computer_vision.identity import IdentityStore
     from computer_vision.inference.opencv_face import SFaceEmbedder, YuNetFaceDetector
@@ -291,6 +302,107 @@ def main(argv: Optional[List[str]] = None) -> int:
     detector.unload()
     embedder.unload()
     return 0
+
+
+def evaluate_registry_photos(registry: str, manifest: str, config_path: str, output: str) -> int:
+    """Score supplied labels against real enrolled templates without editing them.
+
+    Enrollment exports are leakage-prone, so these numbers are explicitly
+    diagnostics. No enrollment photo is claimed to be independent CCTV evidence.
+    Every supplied photo stays in the denominator, including no-face failures.
+    """
+    import csv
+    import json
+    import sqlite3
+    import time
+    import cv2
+    from computer_vision.core.config import load_config
+    from computer_vision.inference.face_factory import create_face_detector, create_face_embedder
+    from tools.benchmark_cv import registry_store
+    from tools.cv_metrics import timing
+
+    config = load_config(config_path, use_env=False)
+    detection = config.module_config('face_detection').params
+    recognition = config.module_config('face_recognition').params
+    threshold, margin = float(recognition.get('threshold', 0.363)), float(recognition.get('margin', 0.05))
+    store = registry_store(registry, threshold)
+    with sqlite3.connect(Path(registry).resolve().as_uri() + '?mode=ro', uri=True) as db:
+        users = list(db.execute('SELECT name, employee_id FROM users WHERE active=1'))
+    by_employee = {employee.casefold(): name for name, employee in users if employee}
+    by_name = {name.casefold(): name for name, _ in users}
+    detector = create_face_detector(detection.get('backend', 'yunet'), detection)
+    embedder = create_face_embedder(recognition.get('backend', 'sface'), recognition)
+    detector.load()
+    embedder.load()
+    rows, durations = [], []
+    source = Path(manifest)
+    with source.open(encoding='utf-8-sig', newline='') as handle:
+        labels = list(csv.DictReader(handle))
+    try:
+        for row in labels:
+            expected = by_employee.get(row.get('employee_id', '').casefold()) or by_name.get(row['name'].casefold(), row['name'])
+            path = source.parent / row['file']
+            record = {'file': row['file'], 'expected': expected, 'enrolled': expected in store.names,
+                      'predicted': None, 'similarity': None, 'max_own_template_cosine': None}
+            started = time.perf_counter()
+            image = cv2.imread(str(path))
+            try:
+                if image is None:
+                    raise ValueError('unreadable image')
+                faces = detector.detect(image)
+                record['faces'] = len(faces)
+                if len(faces) != 1:
+                    raise ValueError(f'expected exactly one face, detected {len(faces)}')
+                vector = embedder.embed(image, faces[0])
+                match = store.match(vector, threshold=threshold, margin=margin)
+                record.update(predicted=match.name if match.matched else None, similarity=float(match.similarity))
+                identity = store.get(expected)
+                if identity is not None:
+                    unit = vector / max(float(np.linalg.norm(vector)), 1e-12)
+                    record['max_own_template_cosine'] = max(float(np.dot(unit, v / max(float(np.linalg.norm(v)), 1e-12))) for v in identity.embeddings)
+            except Exception as exc:
+                record['error'] = f'{type(exc).__name__}: {exc}'
+            durations.append((time.perf_counter() - started) * 1000)
+            rows.append(record)
+    finally:
+        detector.unload()
+        embedder.unload()
+
+    def summarize(records):
+        known = sum(r['enrolled'] for r in records)
+        unknown = len(records) - known
+        correct = sum(r['enrolled'] and r['predicted'] == r['expected'] for r in records)
+        wrong = sum(r['enrolled'] and r['predicted'] is not None and r['predicted'] != r['expected'] for r in records)
+        rejected = sum(r['enrolled'] and r['predicted'] is None for r in records)
+        accepted_unknown = sum(not r['enrolled'] and r['predicted'] is not None for r in records)
+        accepted = correct + wrong + accepted_unknown
+        return {'samples': len(records), 'known_samples': known, 'unknown_samples': unknown,
+                'correct_known': correct, 'wrong_identity': wrong, 'false_rejects': rejected,
+                'false_accepts_of_unknown': accepted_unknown,
+                'precision': correct / accepted if accepted else None,
+                'recall': correct / known if known else None,
+                'false_accept_rate': accepted_unknown / unknown if unknown else None,
+                'false_reject_rate': rejected / known if known else None,
+                'wrong_identity_rate': wrong / known if known else None}
+
+    report = {'protocol': 'Single-image registered-gallery diagnostic on supplied enrollment-export labels',
+              'independent_cctv_accuracy': 'not_measured',
+              'limitations': ['Export labels are supplied metadata, not independently verified names.',
+                             'Enrollment-export photos may overlap registry training samples or the same capture session.',
+                             'Removing near-identical templates does not make the remaining photos independent.',
+                             'Production temporal confirmation, body continuity and face quality gates are not evaluated by this single-image diagnostic.'],
+              'registry': registry, 'identities': len(store), 'templates': store.sample_count,
+              'threshold': threshold, 'margin': margin,
+              'detector_parameters': detection, 'embedder_parameters': recognition,
+              'all_export_photos': summarize(rows),
+              'near_identical_template_photos': sum((r['max_own_template_cosine'] or 0) >= 0.9995 for r in rows),
+              'non_identical_export_subset': summarize([r for r in rows if (r['max_own_template_cosine'] or 0) < 0.9995]),
+              'image_decode_detect_embed_match_latency': timing(durations), 'predictions': rows}
+    target = Path(output)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(report, indent=2), encoding='utf-8')
+    print(json.dumps({k: v for k, v in report.items() if k in {'identities', 'templates', 'all_export_photos', 'near_identical_template_photos', 'independent_cctv_accuracy'}}))
+    return 0 if rows else 2
 
 
 if __name__ == "__main__":

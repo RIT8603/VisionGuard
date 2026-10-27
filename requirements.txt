@@ -28,6 +28,7 @@ ultralytics==8.4.161
 # than PyTorch on an Intel CPU, at the same accuracy. To do without it, point
 # the detectors back at yolo11n.pt (see the comment in config.yaml).
 openvino==2026.4.1
+filelock>=3.13,<5           # Re-ID gallery read/merge/write across camera processes
 
 # --- web dashboard ---
 # Needed only when dashboard.enabled is true.

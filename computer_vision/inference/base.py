@@ -17,7 +17,7 @@ import hmac
 from abc import ABC, abstractmethod
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Dict, List, Sequence, Tuple
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -195,6 +195,19 @@ class DetectorBackend(ABC):
     @property
     def description(self) -> str:
         return f"{type(self).__name__}"
+
+    @property
+    def class_names(self) -> Optional[Tuple[str, ...]]:
+        """The class names the loaded model can output, or None when unknown.
+
+        Backends that read the model's own class list (Ultralytics, OpenVINO
+        exports) keep it in ``_names``; anything else reports None and is not
+        checked.
+        """
+        names = getattr(self, "_names", None)
+        if not names:
+            return None
+        return tuple(str(name) for name in names.values())
 
     def _resolve_labels(self, class_ids: Sequence[int], names: Dict[int, str]) -> List[str]:
         return [names.get(int(cid), str(cid)) for cid in class_ids]

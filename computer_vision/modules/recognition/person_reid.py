@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
 import numpy as np
+from filelock import FileLock, Timeout
 
 from computer_vision.core.context import FrameContext, Severity
 from computer_vision.inference.base import BackendError
@@ -366,10 +367,15 @@ class PersonReIdModule(BaseAIModule):
         self._last_sync = wall
         try:
             with _FILE_LOCK:
-                self._gallery.load()
-                self._gallery.prune(wall)
-                self._gallery.save()
-        except OSError as exc:
+                self._gallery.path.parent.mkdir(parents=True, exist_ok=True)
+                # Camera workers may run in separate processes. Atomic replace
+                # protects readers, but the whole read/merge/write needs a lock
+                # or a later writer can discard another camera's new identities.
+                with FileLock(str(self._gallery.path) + ".lock", timeout=5):
+                    self._gallery.load()
+                    self._gallery.prune(wall)
+                    self._gallery.save()
+        except (OSError, Timeout) as exc:
             self.log.warning("Could not sync the re-identification gallery: %s", exc)
 
     @property

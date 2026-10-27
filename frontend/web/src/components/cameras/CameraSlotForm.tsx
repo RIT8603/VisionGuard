@@ -2,6 +2,7 @@ import type { CameraInfo, SourceType } from '../../api/types';
 import {
   CATEGORIES,
   MODULE_CATALOG,
+  STATUS_LABEL,
   backendKeysFor,
   isCoveredBy,
 } from '../../content/moduleCatalog';
@@ -259,6 +260,10 @@ export function CameraSlotForm({
 
         {draft.ownModules && (
           <div className="camera-modules">
+            <p className="field-help">
+              Checkboxes choose modules to enable. Implemented means code is connected, not that a
+              detection was verified on this video. Setup and experimental limits are shown below.
+            </p>
             {CATEGORIES.map((category) => (
               <fieldset key={category} className="camera-modules-group" disabled={disabled}>
                 <legend>{category}</legend>
@@ -268,7 +273,11 @@ export function CameraSlotForm({
                   const picked = chosen.has(module.id);
                   const implied = !picked && isCoveredBy(module, chosenKeys);
                   return (
-                    <label key={module.id} className="field-check" title={module.summary}>
+                    <label
+                      key={module.id}
+                      className="field-check"
+                      title={[module.summary, module.note].filter(Boolean).join(' ')}
+                    >
                       <input
                         type="checkbox"
                         checked={picked || implied}
@@ -278,8 +287,9 @@ export function CameraSlotForm({
                       <span>
                         {module.name}
                         {implied && <em className="camera-modules-tag"> included</em>}
-                        {module.status === 'setup' && (
-                          <em className="camera-modules-tag"> needs setup</em>
+                        <em className="camera-modules-tag"> · {STATUS_LABEL[module.status]}</em>
+                        {module.requirement && (
+                          <em className="camera-modules-tag"> · {module.requirement}</em>
                         )}
                       </span>
                     </label>
@@ -287,10 +297,20 @@ export function CameraSlotForm({
                 })}
               </fieldset>
             ))}
+            <details className="field-help">
+              <summary>Requirements and limitations</summary>
+              <ul>
+                {MODULE_CATALOG.filter((module) => module.status !== 'planned' && module.note).map(
+                  (module) => (
+                    <li key={module.id}><strong>{module.name}:</strong> {module.note}</li>
+                  ),
+                )}
+              </ul>
+            </details>
             <p className="field-help">
               {draft.moduleIds.length === 0
                 ? 'Nothing chosen: this camera will only show video.'
-                : 'This camera runs only these, whatever the Modules page says.'}
+                : 'Apply cameras to save this selection. Included dependencies also run; this camera ignores the shared Modules selection.'}
             </p>
           </div>
         )}

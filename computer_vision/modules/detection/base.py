@@ -149,12 +149,42 @@ class LabelFilteredDetectionModule(BaseAIModule):
             self._backend.load()
         except BackendError as exc:
             raise ModuleInitializationError(str(exc)) from exc
+        self._check_labels_exist()
 
         self.log.info(
             "Ready: backend=%s, labels=%s, confidence>=%.2f",
             self._backend.description,
             list(self._labels) or "(all)",
             self._min_confidence,
+        )
+
+    def _check_labels_exist(self) -> None:
+        """Refuse to start when ``labels`` names a class the model does not have.
+
+        Labels are matched by exact name, so ``labels: [helmet]`` against a
+        model trained with ``hardhat`` would run normally and silently report
+        nothing, forever. Checked only when the backend knows its model's
+        class list; the error names what the model does offer.
+        """
+        if not self._labels or self._backend is None:
+            return
+        available = self._backend.class_names
+        if available is None:
+            self.log.warning(
+                "Cannot check labels %s: the backend does not report its model's classes",
+                list(self._labels),
+            )
+            return
+        missing = [label for label in self._labels if label not in available]
+        if not missing:
+            return
+        backend, self._backend = self._backend, None
+        backend.unload()
+        shown = ", ".join(sorted(available)[:40]) + (" ..." if len(available) > 40 else "")
+        raise ModuleInitializationError(
+            f"{self.module_name}: the model has no class named {missing}. "
+            f"Set modules.{self.module_name}.labels to the model's own class names.\n"
+            f"The model's classes: {shown}"
         )
 
     def cleanup(self) -> None:

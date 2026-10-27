@@ -89,7 +89,7 @@ export function ModulesPage() {
     apply.state === 'applying'
       ? 'Sending your selection to the backend. The pipeline restarts with the new modules in a few seconds; the video pauses briefly while it does.'
       : apply.state === 'applied'
-        ? 'The running pipeline now matches your selection, and configs/config.yaml was updated to match - it survives a manual restart too.'
+        ? 'The backend accepted your selection. Check camera status after the restart: missing models or initialization errors can prevent it from being applied.'
         : apply.state === 'error'
           ? `Could not apply the selection: ${apply.message}. The pipeline kept running with its previous modules.`
           : 'Toggling a module here changes the running pipeline directly - no manual config edit or restart needed.';
@@ -103,8 +103,9 @@ export function ModulesPage() {
           {/* h2: the portal header's brand is the page's h1. */}
           <h2 className="page-title">Module selection</h2>
           <p className="page-intro">
-            Choose the capabilities your cameras need. Each one shows whether it works today, needs
-            setup first, or is still planned. A camera that was given its own modules on the
+            Choose the capabilities your cameras need. Implemented means backend code exists;
+            requirements and experimental limits are listed separately. It does not confirm a
+            successful detection on your video. A camera that was given its own modules on the
             Cameras page keeps those and ignores this selection.
           </p>
         </header>
@@ -116,7 +117,7 @@ export function ModulesPage() {
 
         <p className="page-meta mono">
           {reachable
-            ? `Connected pipeline is running ${runningKeys.size} backend module${runningKeys.size === 1 ? '' : 's'}.`
+            ? `Followed camera reported ${runningKeys.size} loaded backend module${runningKeys.size === 1 ? '' : 's'} at startup. This is separate from the shared selection below.`
             : 'Backend not connected — running modules cannot be shown.'}
         </p>
 

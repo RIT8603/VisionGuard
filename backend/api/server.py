@@ -30,6 +30,10 @@ camera, and one endpoint now writes):
   Accepted as ``Authorization: Bearer``, a ``?token=`` query parameter
   (exchanged for an HttpOnly cookie so the browser's ``<img>`` and ``fetch``
   calls keep working), or that cookie.
+* **Cross-site writes.** A request that can change something (any method but
+  GET, HEAD or OPTIONS) is refused when the browser says another site sent it.
+  On localhost there is no token, and a page on any site can send a "simple"
+  POST without a CORS preflight; this is what stops it.
 """
 
 from __future__ import annotations
@@ -77,6 +81,8 @@ TOKEN_COOKIE = "vg_dashboard_token"
 
 _LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
 _WILDCARD_HOSTS = frozenset({"", "0.0.0.0", "::", "*"})
+#: Methods that never change anything; every other one is a write.
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 #: Applied to every response. The page uses one inline <script> and <style>,
 #: so those are allowed from the page itself and nothing else is.
@@ -170,7 +176,7 @@ def _host_name(raw: str) -> str:
 
 
 class _AccessMiddleware:
-    """Pure-ASGI guard: Host check, token check, security headers.
+    """Pure-ASGI guard: Host check, cross-site write check, token check, security headers.
 
     Pure ASGI rather than ``BaseHTTPMiddleware`` so it never buffers or breaks
     the long-lived MJPEG stream.
@@ -192,6 +198,12 @@ class _AccessMiddleware:
             if host not in self.policy.allowed_hosts:
                 await _plain(send, 400, b"Invalid Host header")
                 return
+
+        if scope.get("method", "GET").upper() not in _SAFE_METHODS and _cross_site(
+            headers, self.policy
+        ):
+            await _plain(send, 403, b"Cross-site request refused")
+            return
 
         set_cookie: Optional[bytes] = None
         if self.policy.token:
@@ -224,6 +236,33 @@ class _AccessMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
+
+
+def _cross_site(headers, policy: AccessPolicy) -> bool:
+    """True when the browser reports that another site sent this request.
+
+    ``Sec-Fetch-Site`` decides when present (every current browser sends it).
+    It describes the page the browser loaded, so it stays right behind the
+    Vite proxy or a tunnel, where the ``Host`` reaching us is rewritten.
+    ``same-site`` is allowed: another port on this machine is not an attacker
+    this guard is for. Without it, an ``Origin`` header must name this server.
+    A request with neither (curl, scripts, tests) did not come from a page.
+    """
+    fetch_site = headers.get(b"sec-fetch-site", b"").decode("latin-1").strip().lower()
+    if fetch_site:
+        return fetch_site == "cross-site"
+
+    origin = headers.get(b"origin", b"").decode("latin-1").strip().lower()
+    if not origin:
+        return False
+    if origin == "null":
+        return True  # sandboxed frame, file:// page, or a redirect chain
+    _, sep, rest = origin.partition("://")
+    if not sep:
+        return True
+    origin_host = _host_name(rest.split("/", 1)[0])
+    request_host = _host_name(headers.get(b"host", b"").decode("latin-1"))
+    return origin_host != request_host and origin_host not in policy.allowed_hosts
 
 
 def _presented_token(scope, headers) -> tuple[Optional[str], bool]:

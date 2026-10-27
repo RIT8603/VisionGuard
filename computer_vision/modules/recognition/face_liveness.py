@@ -177,7 +177,10 @@ class FaceLivenessModule(BaseAIModule):
         self._moire_peak = float(p.get("moire_peak", 0.0))
         self._block = bool(p.get("block_spoof", False))
         self._severity = parse_severity(p, Severity.WARNING)
-        self._tracker = FaceTracker(overlap_threshold=0.25, miss_interval=1.5)
+        self._tracker = FaceTracker(
+            overlap_threshold=0.25, miss_interval=1.5,
+            center_gate=float(p.get("track_center_gate", 0.0)),
+        )
         self._faces: Dict[int, _FaceState] = {}
         self.log.info(
             "Ready: decide after %.0fs, 3D motion > %.3f for %d frames, blink drop %.2f, "

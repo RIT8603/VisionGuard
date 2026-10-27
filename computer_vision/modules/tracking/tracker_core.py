@@ -139,6 +139,18 @@ class _Match:
     detection_index: int
 
 
+def _overlap(predicted: BBox, last: BBox, detection: BBox) -> float:
+    """Overlap of a detection with where a track is expected *or* last was.
+
+    The velocity estimate comes from box centres, and a person's box jitters
+    as limbs swing and the detector re-frames them; on CCTV that pushed the
+    prediction off people who had barely moved (measured: 6-15% of the frames
+    a visible person lost their box). Accepting the better of the two keeps
+    such a track, and still follows a walker the prediction leads correctly.
+    """
+    return max(predicted.iou(detection), last.iou(detection))
+
+
 #: A distance match also requires the two boxes to be about the same size,
 #: so a far-away person is never continued by a nearby one.
 _MAX_AREA_RATIO = 2.5
@@ -363,6 +375,7 @@ class IoUTracker:
 
         candidates: List[_Match] = []
         for track_index, track_bbox in enumerate(predicted):
+            last_bbox = self._tracks[track_index].bbox
             for detection_index, detection in enumerate(detections):
                 # Never associate across classes, unless told the labels
                 # are interchangeable (match_across_labels).
@@ -371,7 +384,7 @@ class IoUTracker:
                     and detection.label != self._tracks[track_index].label
                 ):
                     continue
-                iou = track_bbox.iou(detection.bbox)
+                iou = _overlap(track_bbox, last_bbox, detection.bbox)
                 if iou >= self.iou_threshold:
                     candidates.append(_Match(iou, track_index, detection_index))
 
@@ -471,7 +484,7 @@ class IoUTracker:
             for candidate_index, candidate in enumerate(candidates):
                 if not self.match_across_labels and candidate.label != track.label:
                     continue
-                iou = predicted.iou(candidate.bbox)
+                iou = _overlap(predicted, track.bbox, candidate.bbox)
                 if iou >= self.candidate_iou_threshold:
                     pairs.append(_Match(iou, track_index, candidate_index))
 
@@ -506,6 +519,24 @@ class IoUTracker:
         self._tracks = [
             track for track in self._tracks if track.time_since_update <= self.max_age
         ]
+
+    def coasting(self, within: float) -> List[TrackState]:
+        """Confirmed tracks unmatched this frame but seen within ``within`` clock units.
+
+        Not part of :meth:`update`'s result: a coasting box is a guess, so it
+        is for drawing continuity only, never for counting or analysis.
+        """
+        return sorted(
+            (
+                track
+                for track in self._tracks
+                if track.hits >= self.min_hits
+                and track.track_id
+                and track.time_since_update > 0
+                and self._clock - track.last_seen <= within
+            ),
+            key=lambda track: track.track_id,
+        )
 
     def _reportable(self) -> List[TrackState]:
         reportable = [
