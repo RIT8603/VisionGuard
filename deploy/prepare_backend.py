@@ -113,7 +113,8 @@ def prepare(mode: str, source: Path, output: Path, video: str | None) -> dict:
         path = linux_path(video, "Bootstrap video")
         if not path.is_file():
             raise ValueError("Bootstrap video does not exist")
-        raw.setdefault("video", {}).update(source="file", path=path.as_posix(), loop=True, source_id="cam-1")
+        raw.setdefault("video", {}).update(source="file", path=path.as_posix(), loop=True, source_id="cam-1",
+                                          playback_speed=1.0)  # real time, not benchmark speed
     configure_devices(raw.get("modules", {}), mode)
     temporary: Path | None = None
     try:
