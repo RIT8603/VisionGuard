@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import type { WakeStage, WakeStatus } from '../../api/wake';
+import type { CapacityWait, WakeStage, WakeStatus } from '../../api/wake';
 import { PATHS } from '../../app/paths';
 import { LogoMark } from '../brand/Logo';
 
@@ -31,6 +32,43 @@ function StageRow({ stage }: { stage: WakeStage }) {
   );
 }
 
+/**
+ * Shown only while AWS reports InsufficientInstanceCapacity. The countdown and
+ * "checked" age tick every second from the last report, so the page visibly
+ * keeps working between polls.
+ */
+function CapacityNotice({ capacity }: { capacity: CapacityWait }) {
+  const [receivedAt, setReceivedAt] = useState(() => Date.now());
+  const [, setTick] = useState(0);
+  useEffect(() => setReceivedAt(Date.now()), [capacity]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const sinceReport = (Date.now() - receivedAt) / 1000;
+  const nextIn = Math.max(0, capacity.next_retry_in - sinceReport);
+  const attempt = Math.min(capacity.attempts_failed + 1, capacity.max_attempts);
+
+  return (
+    <div className="notice notice-info wake-capacity" role="status" aria-live="polite">
+      <span className="notice-word">Please wait</span>
+      <div className="notice-body">
+        <p>
+          We’re sorry for the delay. AWS GPU capacity is currently unavailable in the required
+          region. We’re automatically retrying in the background and will start the AI backend as
+          soon as capacity becomes available.
+        </p>
+        <p>Thank you for your patience.</p>
+        <p className="wake-capacity-meta mono">
+          {nextIn > 0 ? `Attempt ${attempt} of ${capacity.max_attempts} in ${fmtSeconds(nextIn)}` : `Attempt ${attempt} of ${capacity.max_attempts}: asking AWS now…`}
+          {' · '}
+          {capacity.attempts_failed} refused so far · status checked {fmtSeconds(sinceReport)} ago
+        </p>
+      </div>
+    </div>
+  );
+}
+
 interface StartupScreenProps {
   /** Latest report from the wake service; null until the first one arrives. */
   status: WakeStatus | null;
@@ -51,6 +89,7 @@ export function StartupScreen({ status, onRetry }: StartupScreenProps) {
 
   let etaText = 'Checking the GPU backend…';
   if (status?.error) etaText = 'Startup stopped';
+  else if (status?.capacity) etaText = 'Waiting for AWS GPU capacity: no time estimate is possible yet';
   else if (status?.state === 'stopping') etaText = 'Waiting for the previous shutdown to finish';
   else if (eta !== null && eta !== undefined) etaText = eta > 0 ? `About ${fmtSeconds(eta)} left` : 'Taking longer than usual…';
   else if (status) etaText = 'Waiting for the GPU server to start';
@@ -93,11 +132,15 @@ export function StartupScreen({ status, onRetry }: StartupScreenProps) {
           {status && !status.error && eta != null && <span className="wake-basis"> · {status.eta_basis}</span>}
         </p>
 
+        {status?.capacity && !status.error && <CapacityNotice capacity={status.capacity} />}
+
         {status?.error && (
           <div className="notice notice-warn wake-error" role="alert">
             <span className="notice-word">Problem</span>
             <div className="notice-body">
-              {status.error}
+              {status.error_kind === 'capacity'
+                ? 'We’re sorry for the delay. AWS GPU capacity is still unavailable in the required region after every automatic retry. Please try again in a few minutes. Thank you for your patience.'
+                : status.error}
               <button type="button" className="summary-btn wake-retry" onClick={onRetry}>
                 Try again
               </button>

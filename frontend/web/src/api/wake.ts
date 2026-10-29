@@ -20,11 +20,22 @@ export interface WakeStage {
   typical_seconds: number;
 }
 
+/** Present only while AWS has refused the start with InsufficientInstanceCapacity. */
+export interface CapacityWait {
+  attempts_failed: number;
+  max_attempts: number;
+  /** Seconds until the next automatic StartInstances attempt. */
+  next_retry_in: number;
+}
+
 export interface WakeStatus {
   state: WakeState;
   ready: boolean;
   message: string;
   error: string | null;
+  /** Why `error` is set: "capacity" = AWS had no GPU after every retry. */
+  error_kind?: 'capacity' | 'timeout' | 'aws' | null;
+  capacity?: CapacityWait | null;
   /** Share of startup stages verified complete, weighted by their typical duration. */
   progress: number;
   eta_seconds: number | null;

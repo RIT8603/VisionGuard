@@ -42,7 +42,7 @@ DEFAULT_SECONDS = {"instance": 40, "network": 50, "tunnel": 10, "api": 30, "mode
 START_TIMEOUT = 15 * 60
 # AWS often has no spare GPU for a few minutes; keep asking instead of giving up.
 CAPACITY_RETRY_SECONDS = 60
-CAPACITY_RETRY_ATTEMPTS = 10
+CAPACITY_RETRY_ATTEMPTS = 20
 
 log = logging.getLogger("vgwake")
 
@@ -139,6 +139,7 @@ class Waker:
         self.last_start_call = 0.0
         self.pending_start = False
         self.capacity_retry = None  # {"attempt": n, "next_at": t} after InsufficientInstanceCapacity
+        self.error_kind = None  # "capacity" | "timeout" | "aws": lets the page word the error
         self.watched_until = now() + 60
         self.prev_frames = None
         self.last_conn_seen = 0.0
@@ -337,8 +338,11 @@ class Waker:
             self.message = "GPU backend is asleep"
         elif st == "stopping":
             self.message = "GPU backend is shutting down; it starts again right after"
-        if self.cycle and now() - self.cycle["requested"] > START_TIMEOUT:
+        # Counted from the accepted start: waiting for AWS capacity has its own limit.
+        if (self.cycle and not self.capacity_retry
+                and now() - self.cycle.get("sent", self.cycle["requested"]) > START_TIMEOUT):
             self.error = "Startup took longer than 15 minutes. Try again; if it repeats, check the backend logs."
+            self.error_kind = "timeout"
             self.stages[first_missing] = "failed"
             self.cycle = None
 
@@ -445,6 +449,7 @@ class Waker:
             self.error = ("AWS still has no free L4 GPU in this zone after several tries. Please try again later."
                           if code == "InsufficientInstanceCapacity"
                           else f"AWS refused to start the GPU server ({code}).")
+            self.error_kind = "capacity" if code == "InsufficientInstanceCapacity" else "aws"
             self.cycle = None
             log.warning("start failed: %s (giving up)", code)
 
@@ -470,7 +475,15 @@ class Waker:
                     elapsed_active = now() - stage_start
                     entry["seconds"] = round(elapsed_active, 1)
             stages.append(entry)
-        if self.cycle:
+        capacity = None
+        if self.capacity_retry and self.cycle:
+            # Only after a real InsufficientInstanceCapacity from AWS; no ETA can be honest then.
+            capacity = {
+                "attempts_failed": self.capacity_retry["attempt"],
+                "max_attempts": CAPACITY_RETRY_ATTEMPTS,
+                "next_retry_in": max(0, round(self.capacity_retry["next_at"] - now())),
+            }
+        elif self.cycle:
             remaining = sum(typical[s] for s in STAGE_IDS if self.stages[s] != "done")
             eta = max(0, round(remaining - elapsed_active))
         if ready:
@@ -491,6 +504,9 @@ class Waker:
             "ready": ready,
             "message": self.message,
             "error": self.error or (self.aws_error if state in ("asleep", "unknown") else None),
+            "error_kind": self.error_kind if self.error else None,
+            "capacity": capacity,
+            "checked_at": round(now()),  # when this report was built (epoch seconds)
             "progress": 1.0 if ready else round(done_w / total, 3),
             "eta_seconds": eta,
             "eta_basis": basis,

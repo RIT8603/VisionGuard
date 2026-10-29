@@ -221,3 +221,19 @@
     transition: none;
   }
 }
+
+/* ---------- AWS capacity wait (only after InsufficientInstanceCapacity) ---------- */
+
+.wake-capacity {
+  margin: 0 0 16px;
+}
+
+.wake-capacity p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.wake-capacity-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
