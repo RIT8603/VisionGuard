@@ -10,6 +10,7 @@ import './styles/index.css';
 import './styles/public.css';
 import './styles/assistant.css';
 import './styles/faces.css';
+import './styles/wake.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html is missing <div id="root">');

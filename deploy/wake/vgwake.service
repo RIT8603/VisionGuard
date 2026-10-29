@@ -1,0 +1,25 @@
+[Unit]
+Description=VisionGuard wake service (starts/stops the GPU backend on demand)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=vgwake
+Group=vgwake
+# adm: read the nginx activity log
+SupplementaryGroups=adm
+ExecStart=/usr/bin/python3 /opt/vgwake/vgwake.py
+Restart=always
+RestartSec=5
+StateDirectory=vgwake
+StateDirectoryMode=0755
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/vgwake
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

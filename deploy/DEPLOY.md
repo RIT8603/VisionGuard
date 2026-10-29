@@ -76,7 +76,7 @@ Prepare a backend archive. This includes local model files but excludes the
 Windows virtualenv, development environment, local data and stored cameras:
 
 ```powershell
-tar -czf "$env:TEMP/visionguard-deploy.tgz" --exclude=.git --exclude=.venv --exclude=venv --exclude=env --exclude=node_modules --exclude=dist --exclude=runs --exclude=logs --exclude=.env --exclude=deploy/runtime --exclude=configs/cameras.yaml --exclude=data .
+tar -czf "$env:TEMP/visionguard-deploy.tgz" --exclude=.git --exclude=.venv --exclude=venv --exclude=env --exclude=node_modules --exclude=dist --exclude=runs --exclude=logs --exclude=.env --exclude=deploy/runtime --exclude=configs/cameras.yaml --exclude=data --exclude=*.pem --exclude=*.key --exclude=*.ppk .
 scp -i KEY.pem "$env:TEMP/visionguard-deploy.tgz" ubuntu@BACKEND_PUBLIC_IP:~/
 scp -i KEY.pem "data/videos/Example of Hi-Definition Video Surveillance of a Factory Floor - by CCTVDOC.COM_.mp4" ubuntu@BACKEND_PUBLIC_IP:~/demo.mp4
 scp -i KEY.pem -r frontend/web/dist ubuntu@FRONTEND_PUBLIC_IP:~/
@@ -87,6 +87,13 @@ Replace the key and host placeholders. The archive can be large because model
 weights are included. Do not upload your Windows `.env`, `.venv`, or
 `configs/cameras.yaml`: saved Windows paths/webcam sources will not work on EC2.
 Face databases and existing deployment state have a separate migration step.
+Keep SSH key pairs outside the repository (for example `$HOME\.ssh\`). The
+`*.pem`/`*.key`/`*.ppk` excludes are a safety net; before uploading, this
+should print nothing:
+
+```powershell
+tar -tzf "$env:TEMP/visionguard-deploy.tgz" | Select-String -Pattern '\.(pem|key|ppk)$|(^|/)\.env$'
+```
 
 ## 4. Install the CPU backend
 
@@ -213,7 +220,7 @@ The backend token is not an evaluator password and should not be distributed.
 (see section 3), then from your PC:
 
 ```powershell
-scp -i KEY.pem deployisionguard-frontend.tgz ubuntu@FRONTEND_PUBLIC_IP:~/
+scp -i KEY.pem deploy/visionguard-frontend.tgz ubuntu@FRONTEND_PUBLIC_IP:~/
 ```
 
 On the frontend EC2 (the browser "EC2 Instance Connect" terminal works):
@@ -340,6 +347,35 @@ Recheck public SSH/frontend addresses after stop/start; auto-assigned public
 IPv4 addresses can change. A replacement backend has a new private address,
 which must be updated in the frontend. Stopping compute does not remove EBS,
 allocated-address or other retained-resource charges.
+
+## 9a. Wake on demand (GPU sleeps when idle)
+
+Files: `deploy/wake/`. The frontend runs `vgwake` (127.0.0.1:9100, nginx routes
+`/wake/status` and `POST /wake/start`). Opening any `/portal/*` page starts the
+GPU backend and shows a startup screen with the real stages (EC2 running, SSH
+reachable, tunnel up, API answering, YOLO frames advancing); the dashboard
+opens only when all pass. Public pages never need the backend.
+
+- Tunnel: `vg-tunnel-run` reads the backend's current IP from
+  `/var/lib/vgwake/backend_host` (written by vgwake after every start) and pins
+  the host key under the alias `vg-backend`. Backend user `vgtunnel` may only
+  forward to 127.0.0.1:8080 (`/etc/ssh/sshd_config.d/90-vgtunnel.conf`).
+- Idle stop: after `idle_minutes` (15) without same-origin browser requests
+  (`/var/log/nginx/vg_activity.log`) and with no open upstream connection
+  (streams, requests in flight), confirmed twice a minute apart. Enabled only
+  when AWS confirms the shutdown behaviour is `stop` and a dry-run stop succeeds.
+- Abuse limits: same-origin POST only, 4 starts/min per IP, 60 s cooldown,
+  `max_starts_per_day`, `daily_gpu_hours`, and `budget_gpu_hours` for the period.
+- Backend fail-safe: `vg-idle-failsafe.timer` powers off after 45 minutes with
+  no API connection. It does nothing until `/etc/vg-failsafe/armed` exists;
+  create that only after confirming the instance's shutdown behaviour is `stop`.
+
+IAM (done by the account owner in the console): create a role for **EC2** with
+the policy in `deploy/wake/iam-policy.json` (start/stop only the backend
+instance; describe calls), then EC2 -> frontend instance -> Actions -> Security
+-> Modify IAM role -> attach it. `sudo systemctl restart vgwake`, then
+`curl -s -H "Host: www.vision-guard.tech" 127.0.0.1:9100/wake/status` should
+show `"idle_stop": {"enabled": true}`.
 
 ## 10. Troubleshooting
 
