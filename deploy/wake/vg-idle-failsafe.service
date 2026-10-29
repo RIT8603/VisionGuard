@@ -1,0 +1,6 @@
+[Unit]
+Description=VisionGuard idle fail-safe check (power off when the API is unused)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vg-idle-failsafe

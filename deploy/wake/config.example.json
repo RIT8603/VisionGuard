@@ -1,0 +1,19 @@
+{
+  "instance_id": "i-0d8176ea5f4d6d7fb",
+  "region": "us-east-1",
+  "port": 9100,
+  "ssh_port": 22,
+  "api": "http://127.0.0.1:8080",
+  "allowed_hosts": ["www.vision-guard.tech", "vision-guard.tech"],
+  "token_file": "/etc/vgwake/backend.token",
+  "host_file": "/var/lib/vgwake/backend_host",
+  "activity_log": "/var/log/nginx/vg_activity.log",
+  "idle_minutes": 15,
+  "idle_stop_enabled": true,
+  "start_cooldown_seconds": 60,
+  "max_starts_per_day": 12,
+  "daily_gpu_hours": 4,
+  "budget_gpu_hours": 16,
+  "budget_period_start": "2026-10-29",
+  "budget_period_end": "2026-11-10"
+}

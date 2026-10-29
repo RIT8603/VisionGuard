@@ -1,0 +1,25 @@
+#!/bin/sh
+# Backend last-resort budget guard (the frontend's vgwake normally stops the
+# GPU after 15 idle minutes). Powers the instance off when the API has had no
+# connection for IDLE_MINUTES - e.g. if the frontend is down. Does nothing
+# until /etc/vg-failsafe/armed exists, which is created only after AWS
+# confirmed the shutdown behaviour is "stop" (not "terminate").
+set -eu
+IDLE_MINUTES=45
+STATE=/var/lib/vg-failsafe/last_active
+mkdir -p /var/lib/vg-failsafe
+now=$(date +%s)
+uptime_s=$(cut -d. -f1 /proc/uptime)
+
+# Any open API connection (dashboard polling, an MJPEG stream, a request in
+# flight) counts as activity. Idle keep-alive connections close after 5 s.
+if [ -n "$(ss -Htn state established '( sport = :8080 )')" ] || [ ! -f "$STATE" ]; then
+  echo "$now" > "$STATE"
+fi
+[ -f /etc/vg-failsafe/armed ] || exit 0
+[ "$uptime_s" -ge $((IDLE_MINUTES * 60)) ] || exit 0
+last=$(cat "$STATE")
+if [ $((now - last)) -ge $((IDLE_MINUTES * 60)) ]; then
+  logger -t vg-failsafe "no API connection for $(( (now - last) / 60 )) min; powering off (instance stops)"
+  systemctl poweroff
+fi

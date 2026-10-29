@@ -1,0 +1,2 @@
+# vgwake may only restart the tunnel (after the backend's IP changed).
+vgwake ALL=(root) NOPASSWD: /usr/bin/systemctl restart vg-backend-tunnel.service
