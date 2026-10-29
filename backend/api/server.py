@@ -631,6 +631,8 @@ def build_app(
 
 #: Longest a live stream stays silent before the current frame is sent again.
 _STREAM_KEEPALIVE_SEC = 2.0
+#: How often each open stream logs its delivery figures.
+_STREAM_LOG_SEC = 10.0
 
 
 async def _mjpeg_frames(
@@ -651,14 +653,17 @@ async def _mjpeg_frames(
     cancel_event = slots.cancel_event_for(client_id)
     last_seq = 0
     last_sent = time.monotonic()
+    trace = _StreamTrace(client_id)
+    ended = "client left"
     try:
         while True:
             if cancel_event is not None and cancel_event.is_set():
+                ended = "superseded by a newer stream from the same client"
                 break
             if request is not None and await request.is_disconnected():
                 break
 
-            jpeg, seq = state.latest_frame()
+            jpeg, seq, (captured_at, published_at) = state.latest_frame_traced()
             now = time.monotonic()
             # Repeating the current picture while nothing new arrives keeps
             # the connection visibly alive (a camera reconnecting, a slow
@@ -668,17 +673,65 @@ async def _mjpeg_frames(
             if jpeg is not None and (seq > last_seq or repeat):
                 last_seq = seq
                 last_sent = now
+                sent_at = time.time()
+                # Per-part trace headers: browsers ignore them, diagnostics read them.
                 yield (
                     f"--{_BOUNDARY}\r\nContent-Type: image/jpeg\r\n"
-                    f"Content-Length: {len(jpeg)}\r\n\r\n".encode()
+                    f"Content-Length: {len(jpeg)}\r\n"
+                    f"X-Frame-Seq: {seq}\r\nX-Frame-Captured: {captured_at:.3f}\r\n"
+                    f"X-Frame-Published: {published_at:.3f}\r\nX-Frame-Sent: {sent_at:.3f}\r\n\r\n".encode()
                     + jpeg
                     + b"\r\n"
                 )
+                # Time spent inside that yield = how long the network made us wait.
+                trace.sent(seq, sent_at - captured_at, time.monotonic() - now)
             if not state.running:
+                ended = "pipeline stopped"
                 break
             await asyncio.sleep(poll_interval)
     finally:
+        trace.close(ended)
         slots.release(client_id, cancel_event)
+
+
+class _StreamTrace:
+    """Per-stream delivery figures, logged every few seconds and when the stream ends."""
+
+    def __init__(self, client_id: Optional[str]) -> None:
+        self.client = client_id or "-"
+        self.opened = self.window_start = time.monotonic()
+        self.frames = self.total = 0
+        self.first_seq = self.last_seq = 0
+        self.max_age = self.max_block = 0.0
+
+    def sent(self, seq: int, age: float, blocked: float) -> None:
+        if self.frames == 0:
+            self.first_seq = seq
+        self.frames += 1
+        self.total += 1
+        self.last_seq = seq
+        self.max_age = max(self.max_age, age)
+        self.max_block = max(self.max_block, blocked)
+        if time.monotonic() - self.window_start >= _STREAM_LOG_SEC:
+            self.flush()
+
+    def flush(self) -> None:
+        span = max(time.monotonic() - self.window_start, 1e-6)
+        if self.frames:
+            logger.info(
+                "stream %s: %d frames in %.1fs (%.1f fps), seq %d-%d, max age at send %.0f ms, "
+                "max wait in send %.0f ms",
+                self.client, self.frames, span, self.frames / span, self.first_seq, self.last_seq,
+                self.max_age * 1000, self.max_block * 1000,
+            )
+        self.window_start = time.monotonic()
+        self.frames = 0
+        self.max_age = self.max_block = 0.0
+
+    def close(self, reason: str) -> None:
+        self.flush()
+        logger.info("stream %s closed after %.1fs, %d frames: %s",
+                    self.client, time.monotonic() - self.opened, self.total, reason)
 
 
 # --------------------------------------------------------------------------- #

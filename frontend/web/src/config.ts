@@ -28,11 +28,14 @@ export const STALE_AFTER_MS = 3000;
 /** `uptime_sec` dropping by more than this means the backend restarted. */
 export const RESTART_TOLERANCE_SEC = 1;
 
-/** Delay before reopening the MJPEG stream after the <img> reports an error. */
-export const STREAM_RETRY_MS = 2000;
+/** No new stream frame for this long: the connection is replaced. */
+export const STREAM_STALL_MS = 3000;
 
-/** How often the live feed's last frame is copied, to hold across a reconnect. */
-export const STREAM_HOLD_MS = 250;
+/** Longest wait between stream reconnect attempts (the first one is immediate). */
+export const STREAM_MAX_BACKOFF_MS = 5000;
+
+/** How often the live feed logs its delivery figures ([vg-stream] in the console). */
+export const STREAM_LOG_MS = 5000;
 
 /** How often the camera list (status of every camera) is refreshed. */
 export const CAMERAS_POLL_MS = 1000;

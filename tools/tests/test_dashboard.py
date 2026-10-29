@@ -246,6 +246,32 @@ class TestWebSink:
         assert state.snapshot()["frame"]["frame_id"] == 2
         assert len(state.events_since()) == 2
 
+    def _count_encodes(self, monkeypatch, state, stream_fps, source_fps, seconds, jitter=0.0):
+        """Feed frames on a fake clock; return how many were JPEG-encoded."""
+        import backend.services.web_sink as web_sink_module
+
+        clock = {"t": 1000.0}
+        monkeypatch.setattr(web_sink_module.time, "perf_counter", lambda: clock["t"])
+        sink = self._sink(state, stream_fps=stream_fps)
+        encoded = []
+        real_jpeg = sink._jpeg
+        monkeypatch.setattr(sink, "_jpeg", lambda frame: encoded.append(1) or real_jpeg(frame))
+        rng = np.random.default_rng(1)
+        frames = int(seconds * source_fps)
+        for i in range(frames):
+            clock["t"] = 1000.0 + i / source_fps + float(rng.uniform(-jitter, jitter))
+            sink.emit(frame_ctx(i + 1), PipelineStats())
+        return len(encoded)
+
+    def test_stream_fps_is_reached_on_a_faster_source(self, monkeypatch, state):
+        """30 fps video with a 15 fps cap shows 15 fps, not ~11 (frames land a hair early)."""
+        n = self._count_encodes(monkeypatch, state, stream_fps=15, source_fps=30, seconds=4, jitter=0.002)
+        assert 58 <= n <= 61
+
+    def test_stream_fps_is_never_exceeded(self, monkeypatch, state):
+        n = self._count_encodes(monkeypatch, state, stream_fps=15, source_fps=100, seconds=4, jitter=0.002)
+        assert n <= 61
+
     def test_never_asks_the_pipeline_to_stop(self, state):
         """A browser must not be able to end a run."""
         assert self._sink(state).emit(frame_ctx(), PipelineStats()) is True
