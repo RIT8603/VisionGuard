@@ -40,6 +40,8 @@ class DashboardState:
 
     _jpeg: Optional[bytes] = field(default=None, repr=False)
     _frame_seq: int = 0
+    #: (captured_at, published_at) of ``_jpeg``, epoch seconds - traces a frame end to end.
+    _frame_times: Tuple[float, float] = (0.0, 0.0)
     _summary: Dict[str, Any] = field(default_factory=dict, repr=False)
     _stats: Dict[str, Any] = field(default_factory=dict, repr=False)
     _events: Deque[Dict[str, Any]] = field(default_factory=deque, repr=False)
@@ -91,6 +93,7 @@ class DashboardState:
         summary: Dict[str, Any],
         stats: Dict[str, Any],
         events: List[Dict[str, Any]],
+        captured_at: Optional[float] = None,
     ) -> None:
         """Replace the current snapshot and wake any waiting stream readers."""
         with self._frame_ready:
@@ -98,6 +101,8 @@ class DashboardState:
             if jpeg is not None:
                 self._jpeg = jpeg
                 self._frame_seq += 1
+                published = time.time()
+                self._frame_times = (captured_at or published, published)
             self._summary = summary
             self._stats = stats
             for event in events:
@@ -118,7 +123,7 @@ class DashboardState:
             except Exception:  # noqa: BLE001 - alerting must never stop the pipeline
                 logger.exception("Alert handling failed; the events are still in the feed")
 
-    def publish_frame(self, jpeg: bytes) -> None:
+    def publish_frame(self, jpeg: bytes, captured_at: Optional[float] = None) -> None:
         """Replace only the picture, leaving results, stats and events alone.
 
         Used by the live view, which shows the camera at its own rate between
@@ -129,6 +134,8 @@ class DashboardState:
         with self._frame_ready:
             self._jpeg = jpeg
             self._frame_seq += 1
+            published = time.time()
+            self._frame_times = (captured_at or published, published)
             self._frame_ready.notify_all()
 
     def stop(self) -> None:
@@ -197,9 +204,14 @@ class DashboardState:
 
     def latest_frame(self) -> Tuple[Optional[bytes], int]:
         """``(jpeg, seq)`` of the newest frame, without waiting."""
+        jpeg, seq, _ = self.latest_frame_traced()
+        return jpeg, seq
+
+    def latest_frame_traced(self) -> Tuple[Optional[bytes], int, Tuple[float, float]]:
+        """``(jpeg, seq, (captured_at, published_at))`` of the newest frame."""
         with self._lock:
             self._stream_read_at = time.monotonic()
-            return self._jpeg, self._frame_seq
+            return self._jpeg, self._frame_seq, self._frame_times
 
     def viewer_demand(self) -> str:
         """Who is looking at this camera's picture right now.
