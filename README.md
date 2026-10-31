@@ -13,38 +13,49 @@ Camera Source -> Video Source Abstraction -> OpenCV Vision Core
               -> Shared FrameContext -> Annotated Output / Dashboard
 ```
 
+| | |
+|---|---|
+| **Hosted demo** | https://www.vision-guard.tech |
+| **Demo video** | https://youtu.be/Mmx9-0xzOfI |
+| **Repository** | https://github.com/RIT8603/VisionGuard |
+| **Team** | Ritesh (Computer Vision & Backend), Vanessa Victorino (UI & UX) |
+
+### Submission documents
+
+| File | What it covers |
+|---|---|
+| [Judges_Guide.pdf](Judges_Guide.pdf) | Where to look and what to try, in order |
+| [Technical_Report.pdf](Technical_Report.pdf) | Architecture, modules, design decisions |
+| [Results_Metrics.pdf](Results_Metrics.pdf) | Measured accuracy, FPS and latency |
+| [Evaluation_Evidence.pdf](Evaluation_Evidence.pdf) | Screenshots and logs behind the numbers |
+| [Privacy_Consent_Note.pdf](Privacy_Consent_Note.pdf) | How face data is collected, stored and deleted |
+| [deploy/DEPLOY.md](deploy/DEPLOY.md) | Frontend + backend EC2 deployment |
+
 ---
 
-## Status: Phase 10 (Dashboard: alerts and settings) — in progress
+## Status
 
 Development workflow: **[docs/WORKFLOW.md](docs/WORKFLOW.md)**
 
 **All three video sources and twenty-six AI modules are implemented**, and the
-platform now produces **events**, not just detections:
+platform produces **events**, not just detections:
 
 ```
 Webcam / Video file / RTSP camera
         -> OpenCV -> Detection -> Tracking -> Analysis -> Events + annotated video
 ```
 
-| Delivered | Not yet (and by design) |
-|---|---|
-| Project structure | Face detection / recognition — Phase 7 |
-| Configuration (YAML + env + CLI) | Higher-level features — Phase 9 |
-| Structured logging | Dashboard zone editing — Phase 10 |
-| `BaseVideoSource` abstraction | Cloud / Agentic — Phases 11–12 |
-| `WebcamSource` — development | |
-| `VideoFileSource` — evaluation | |
-| `RTSPSource` — production | |
-| `FrameContext` | |
-| `BaseAIModule` interface | |
-| `ModuleRegistry` + dependency ordering | |
-| Pipeline, FPS / latency measurement | |
-| Live annotated window with HUD | |
-| `DetectorBackend` abstraction + model sharing | |
-| `IoUTracker` (reusable algorithm) | |
-| Reconnect, timeouts, stale-frame dropping | |
-| Credential redaction in every log path | |
+Delivered:
+
+- Configuration (YAML + env + CLI), structured logging
+- `WebcamSource` / `VideoFileSource` / `RTSPSource` behind `BaseVideoSource`
+- `FrameContext`, `BaseAIModule`, `ModuleRegistry` + dependency ordering
+- Pipeline with FPS / latency measurement, live annotated window with HUD
+- `DetectorBackend` abstraction + model sharing, `IoUTracker`
+- Reconnect, timeouts, stale-frame dropping, credential redaction in every log path
+- Face Registry (multi-angle enrolment), face recognition, attendance, unknown-person alerts
+- React web portal: live view, alerts, module settings, reports, help assistant
+- Deployment scripts for a frontend EC2 + CPU/GPU backend EC2 ([deploy/](deploy/DEPLOY.md))
 
 ### AI modules
 
@@ -193,6 +204,24 @@ Useful flags: `--dashboard`, `--dashboard-port`, `--config`, `--source`,
 | 2 | Configuration error |
 | 3 | Video source error / unavailable |
 | 4 | AI module error |
+
+### Web portal (React)
+
+The backend serves the API and the MJPEG stream on port 8080
+(`--dashboard`). The React portal in `frontend/web` proxies `/api` and
+`/stream.mjpg` to it in development (override with `VG_BACKEND`). Node 20+.
+
+```bash
+.venv/Scripts/python.exe -m backend.main --no-window --dashboard --video-path data/samples/test_patrol.avi --loop
+```
+
+```bash
+cd frontend/web && npm install && npm run dev
+```
+
+`npm run build` writes the production bundle to `frontend/web/dist`. The help
+assistant is optional: copy `frontend/web/.env.example` to `.env.local` and
+set the provider, model and key; without them it shows as unavailable.
 
 ---
 

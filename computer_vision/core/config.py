@@ -151,6 +151,14 @@ class VideoConfig(BaseModel):
 
     # YouTube source
     youtube_url: str | None = None
+    youtube_cookies: str | None = Field(
+        default=None,
+        description=(
+            "Netscape cookies.txt exported from a browser signed in to YouTube. "
+            "YouTube asks servers it treats as bots (e.g. cloud addresses) to sign "
+            "in; this is that sign-in. Keep the file private: it is a login."
+        ),
+    )
 
     # Resilience
     open_timeout_sec: float = 10.0
@@ -766,6 +774,7 @@ _ENV_OVERRIDES: Mapping[str, tuple[str, str, Any]] = {
     "VIDEO_FPS": ("video", "fps", int),
     "VIDEO_PATH": ("video", "path", str),
     "VIDEO_LOOP": ("video", "loop", _as_bool),
+    "YOUTUBE_COOKIES": ("video", "youtube_cookies", str),
     "RTSP_URL": ("video", "rtsp_url", str),
     "RTSP_TRANSPORT": ("video", "rtsp_transport", str),
     "LOG_LEVEL": ("app", "log_level", str),

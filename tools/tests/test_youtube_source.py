@@ -275,3 +275,140 @@ class TestYouTubeSourceLifecycle:
         # Third attempt exceeds reconnect_attempts (2) -> raises FrameReadError
         with pytest.raises(FrameReadError, match="The stream appears to be offline or finished"):
             source.read()
+
+
+class TestYouTubeCookies:
+    """A signed-in cookies.txt answers YouTube's "confirm you're not a bot" on servers."""
+
+    URL = "https://www.youtube.com/watch?v=M3HKLzjvKPc"
+
+    def _capture_opts(self, monkeypatch, cfg, error=None):
+        seen = {}
+
+        class FakeYDL:
+            def __init__(self, opts):
+                seen.update(opts)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def extract_info(self, url, download=False):
+                if error:
+                    raise Exception(error)
+                return {"formats": [{"height": 720, "url": "https://stream.fake/720.m3u8"}]}
+
+        import yt_dlp
+
+        monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+        source = YouTubeSource(cfg)
+        try:
+            source._resolve_stream_url()
+        except SourceOpenError as exc:
+            return seen, str(exc)
+        return seen, None
+
+    def test_cookie_file_is_passed_to_ytdlp(self, monkeypatch, tmp_path):
+        cookies = tmp_path / "cookies.txt"
+        cookies.write_text("# Netscape HTTP Cookie File\n")
+        cfg = build_config({"video": {"source": "youtube", "youtube_url": self.URL,
+                                      "youtube_cookies": str(cookies)}}).video
+        opts, error = self._capture_opts(monkeypatch, cfg)
+        assert error is None
+        assert opts["cookiefile"] == str(cookies)
+
+    def test_no_cookie_file_by_default(self, monkeypatch):
+        cfg = build_config({"video": {"source": "youtube", "youtube_url": self.URL}}).video
+        opts, _ = self._capture_opts(monkeypatch, cfg)
+        assert "cookiefile" not in opts
+
+    def test_missing_cookie_file_is_a_clear_error(self, monkeypatch, tmp_path):
+        cfg = build_config({"video": {"source": "youtube", "youtube_url": self.URL,
+                                      "youtube_cookies": str(tmp_path / "nope.txt")}}).video
+        _, error = self._capture_opts(monkeypatch, cfg)
+        assert "youtube_cookies" in error and "does not exist" in error
+
+    def test_bot_check_without_cookies_says_how_to_sign_in(self, monkeypatch):
+        cfg = build_config({"video": {"source": "youtube", "youtube_url": self.URL}}).video
+        _, error = self._capture_opts(
+            monkeypatch, cfg, error="ERROR: [youtube] abc: Sign in to confirm you're not a bot."
+        )
+        assert "not a bot" in error and "youtube_cookies" in error
+
+    def test_cameras_inherit_the_cookie_setting(self, tmp_path):
+        cookies = tmp_path / "cookies.txt"
+        base = build_config({"video": {"youtube_cookies": str(cookies)}}).video
+        cam = CameraConfig(id="yt", source="youtube", youtube_url=self.URL)
+        assert cam.to_video(base).youtube_cookies == str(cookies)
+
+    def test_environment_variable_sets_it(self, monkeypatch, tmp_path):
+        from computer_vision.core.config import load_config
+
+        monkeypatch.setenv("VISIONGUARD_YOUTUBE_COOKIES", str(tmp_path / "c.txt"))
+        cfg_file = tmp_path / "config.yaml"
+        cfg_file.write_text("video:\n  source: file\n  path: x.mp4\n")
+        assert load_config(cfg_file).video.youtube_cookies == str(tmp_path / "c.txt")
+
+
+class TestRecordedVideoPacing:
+    """A recorded YouTube video (Short, VOD) must play at its own speed, not fast-forward."""
+
+    class InstantCapture:
+        """Decodes instantly, like a recorded video on a fast machine."""
+
+        def __init__(self, fps=30.0):
+            self.reads = 0
+            self.fps = fps
+
+        def read(self):
+            self.reads += 1
+            return True, np.zeros((4, 4, 3), np.uint8)
+
+        def get(self, prop):
+            return self.fps
+
+        def release(self):
+            pass
+
+    def _reads_in(self, seconds, pace_fps):
+        import time
+
+        from computer_vision.sources.rtsp import _LatestFrameReader
+
+        cap = self.InstantCapture()
+        reader = _LatestFrameReader(cap, "t", pace_fps=pace_fps)
+        reader.start()
+        time.sleep(seconds)
+        reader.stop()
+        return cap.reads
+
+    def test_paced_reader_reads_at_the_given_rate(self):
+        reads = self._reads_in(0.5, pace_fps=20)
+        assert 8 <= reads <= 13  # ~10 frames in 0.5 s at 20 fps
+
+    def test_unpaced_reader_still_drains_as_fast_as_it_can(self):
+        assert self._reads_in(0.2, pace_fps=0) > 200
+
+    @pytest.mark.parametrize("is_live, expected", [(True, 0.0), (False, 25.0)])
+    def test_youtube_paces_only_recorded_videos(self, monkeypatch, is_live, expected):
+        import computer_vision.sources.youtube as yt
+
+        seen = {}
+
+        class FakeReader:
+            def __init__(self, capture, name, join_timeout=2.0, pace_fps=0.0):
+                seen["pace_fps"] = pace_fps
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(yt, "_LatestFrameReader", FakeReader)
+        cfg = build_config({"video": {"source": "youtube",
+                                      "youtube_url": "https://www.youtube.com/watch?v=M3HKLzjvKPc"}}).video
+        source = YouTubeSource(cfg)
+        source._is_live, source._native_fps = is_live, 25.0
+        source._capture = self.InstantCapture(fps=99)
+        source._start_reader()
+        assert seen["pace_fps"] == expected
