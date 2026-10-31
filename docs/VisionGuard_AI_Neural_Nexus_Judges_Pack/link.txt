@@ -1,0 +1,7 @@
+VisionGuard AI - Links
+
+GitHub repository : https://github.com/RIT8603/VisionGuard
+Demo video        : https://youtu.be/Mmx9-0xzOfI
+Hosted demo       : https://www.vision-guard.tech
+
+Team              : Ritesh (Computer Vision & Backend), Vanessa Victorino (UI & UX)

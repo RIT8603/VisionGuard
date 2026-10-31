@@ -183,7 +183,7 @@ class WebSink(BaseOutputSink):
         self._config = config
         self._min_interval = 1.0 / stream_fps if stream_fps > 0 else 0.0
         self._quality = int(jpeg_quality)
-        self._last_encoded_at = 0.0
+        self._next_encode_at = 0.0
 
         self._peek: Optional[Peek] = None
         self._prepare: Optional[Prepare] = None
@@ -390,14 +390,23 @@ class WebSink(BaseOutputSink):
             # one NumPy value or backend object would 500 every status call.
             stats=json_safe(stats.as_dict()),
             events=json_safe([event.to_dict() for event in context.events]),
+            captured_at=context.wall_time.timestamp(),
         )
         return True
 
     def _encode(self, context: FrameContext) -> Optional[bytes]:
         now = time.perf_counter()
-        if self._min_interval and (now - self._last_encoded_at) < self._min_interval:
-            return None
-        self._last_encoded_at = now
+        if self._min_interval:
+            # A fixed cadence, not "interval since the last encode": frames
+            # arrive on the source's own clock, so the one due at 66.7 ms often
+            # lands at 66.6 ms - skipping it turned 15 fps into ~11 on a 30 fps
+            # video. A quarter interval of slack absorbs that jitter; deadlines
+            # still advance by a full interval, so the average never exceeds
+            # stream_fps.
+            if now < self._next_encode_at - self._min_interval / 4:
+                return None
+            on_time = now - self._next_encode_at < self._min_interval
+            self._next_encode_at = (self._next_encode_at if on_time else now) + self._min_interval
 
         frame = context.frame.copy()
         if context.overlays:

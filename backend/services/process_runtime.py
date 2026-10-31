@@ -70,11 +70,11 @@ class _ProxyState:
         self._out = out_q
         self._demand = demand
 
-    def publish(self, jpeg=None, summary=None, stats=None, events=None) -> None:
-        self._out.put(("publish", jpeg, summary, stats, events))
+    def publish(self, jpeg=None, summary=None, stats=None, events=None, captured_at=None) -> None:
+        self._out.put(("publish", jpeg, summary, stats, events, captured_at))
 
-    def publish_frame(self, jpeg: bytes) -> None:
-        self._out.put(("frame", jpeg))
+    def publish_frame(self, jpeg: bytes, captured_at=None) -> None:
+        self._out.put(("frame", jpeg, captured_at))
 
     def viewer_demand(self) -> str:
         return _DEMAND_NAMES.get(int(self._demand.value), "idle")
@@ -426,10 +426,10 @@ def _dispatch(rt: ProcessRuntime, message: Tuple, hub: CameraHub) -> None:
     kind = message[0]
     state = hub.get(rt.id)
     if kind == "publish" and state is not None:
-        _, jpeg, summary, stats, events = message
-        state.publish(jpeg=jpeg, summary=summary, stats=stats, events=events)
+        _, jpeg, summary, stats, events, captured_at = message
+        state.publish(jpeg=jpeg, summary=summary, stats=stats, events=events, captured_at=captured_at)
     elif kind == "frame" and state is not None:
-        state.publish_frame(message[1])
+        state.publish_frame(message[1], captured_at=message[2])
     elif kind == "stopped" and state is not None:
         state.stop()
     elif kind == "phase":

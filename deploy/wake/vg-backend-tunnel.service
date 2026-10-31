@@ -1,0 +1,16 @@
+[Unit]
+Description=VisionGuard SSH tunnel to the GPU backend API (127.0.0.1:8080)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/usr/local/bin/vg-tunnel-run
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -4,17 +4,21 @@ import { PortalHeader } from '../components/layout/PortalHeader';
 import { PortalNav } from '../components/layout/PortalNav';
 import { ConnectionNotice } from '../components/pipeline/ConnectionNotice';
 import { PipelineProvider, usePipeline } from '../state/PipelineProvider';
+import { BackendGate } from './BackendGate';
 
 /**
  * Frame for every portal page: status header, tab navigation, connection
  * notice, then the page. Owns the PipelineProvider, so polling runs only
- * while a portal page is open and is shared by all of them.
+ * while a portal page is open and is shared by all of them. BackendGate keeps
+ * it closed (showing the startup screen) until the GPU backend is ready.
  */
 export function PortalLayout() {
   return (
-    <PipelineProvider>
-      <PortalShell />
-    </PipelineProvider>
+    <BackendGate>
+      <PipelineProvider>
+        <PortalShell />
+      </PipelineProvider>
+    </BackendGate>
   );
 }
 
