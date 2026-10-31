@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import time
+from pathlib import Path
 from typing import Optional
 
 import cv2
@@ -71,6 +72,10 @@ class YouTubeSource(OpenCVVideoSource):
         self._total_reconnects = 0
         self._total_dropped = 0
         self._stream_title: Optional[str] = None
+        #: A recorded video (Short, VOD) is read at its own frame rate; a live
+        #: stream already arrives in real time.
+        self._is_live = True
+        self._native_fps = 0.0
 
     # ------------------------------------------------------------------ #
     # Properties & Identity
@@ -157,6 +162,13 @@ class YouTubeSource(OpenCVVideoSource):
         node_path = _find_node_path()
         if node_path:
             ydl_opts["js_runtimes"] = {"node": {"path": node_path}}
+        cookies = self._config.youtube_cookies
+        if cookies:
+            if not Path(cookies).is_file():
+                raise SourceOpenError(
+                    f"video.youtube_cookies points to {cookies}, which does not exist."
+                )
+            ydl_opts["cookiefile"] = cookies
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -165,12 +177,19 @@ class YouTubeSource(OpenCVVideoSource):
             msg = str(exc)
             if "ERROR: [youtube]" in msg:
                 msg = msg.split("ERROR: [youtube]", 1)[1].strip()
+            if "not a bot" in msg and not cookies:
+                msg += (
+                    " - YouTube wants this server to sign in: export cookies.txt from a "
+                    "browser signed in to YouTube and set video.youtube_cookies "
+                    "(or VISIONGUARD_YOUTUBE_COOKIES) to its path"
+                )
             raise SourceOpenError(f"Could not load YouTube stream ({msg})") from exc
 
         if not info:
             raise SourceOpenError(f"No stream information returned for {self.safe_url}")
 
         self._stream_title = info.get("title")
+        self._is_live = bool(info.get("is_live"))
 
         # Pick best format (prioritize video streams <= 1080p for efficient inference)
         formats = info.get("formats") or []
@@ -181,6 +200,7 @@ class YouTubeSource(OpenCVVideoSource):
             candidates = [f for f in video_formats if (f.get("height") or 0) <= 1080]
             best = max(candidates or video_formats, key=lambda f: f.get("height") or 0)
             stream_url = best.get("url")
+            self._native_fps = float(best.get("fps") or 0.0)
 
         if not stream_url:
             stream_url = info.get("url")
@@ -212,8 +232,16 @@ class YouTubeSource(OpenCVVideoSource):
             self._capture,
             self._source_id,
             join_timeout=max(2.0, self._config.read_timeout_sec + 1.0),
+            pace_fps=0.0 if self._is_live else self._recorded_fps(),
         )
         self._reader.start()
+
+    def _recorded_fps(self) -> float:
+        """Frame rate to play a recorded video at: the format's, else the capture's, else 30."""
+        if self._native_fps > 0:
+            return self._native_fps
+        reported = self._capture.get(cv2.CAP_PROP_FPS) if self._capture is not None else 0.0
+        return reported if 1.0 <= reported <= 120.0 else 30.0
 
     def _stop_reader(self) -> bool:
         """Stop background reader. Returns True if capture can be released immediately."""

@@ -122,11 +122,19 @@ class _LatestFrameReader:
     """
 
     def __init__(
-        self, capture: "cv2.VideoCapture", name: str, join_timeout: float = 2.0
+        self,
+        capture: "cv2.VideoCapture",
+        name: str,
+        join_timeout: float = 2.0,
+        pace_fps: float = 0.0,
     ) -> None:
         self._capture = capture
         self._name = name
         self._join_timeout = max(0.1, float(join_timeout))
+        #: 0 for a live source (it arrives in real time by itself). A recorded
+        #: video decodes as fast as the CPU allows, so it is read at its own
+        #: frame rate instead - otherwise it plays fast-forward.
+        self._pace_fps = max(0.0, float(pace_fps))
         self._condition = threading.Condition()
         self._frame: Optional[np.ndarray] = None
         #: The newest frame again, but never cleared by latest(): what a live
@@ -151,8 +159,19 @@ class _LatestFrameReader:
         self._thread.start()
 
     def _run(self) -> None:
+        paced_from = time.perf_counter()
+        paced_frames = 0
         try:
             while not self._stop.is_set():
+                if self._pace_fps:
+                    due = paced_from + paced_frames / self._pace_fps
+                    now = time.perf_counter()
+                    if now - due > 1.0:
+                        # Fell well behind (a slow read): continue from here, no catch-up burst.
+                        paced_from, paced_frames = now, 0
+                    elif due > now and self._stop.wait(due - now):
+                        break
+                    paced_frames += 1
                 try:
                     ok, frame = self._capture.read()
                 except cv2.error as exc:  # pragma: no cover - driver specific
